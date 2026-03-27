@@ -213,7 +213,7 @@ export default function WaveformCanvas({
       const rect       = canvas.getBoundingClientRect()
       const cursorFrac = (e.clientX - rect.left) / rect.width
       const cursorMs   = startMs + cursorFrac * spanMs
-      const newZoom    = Math.max(1, Math.min(64, zoom * Math.exp(-e.deltaY * 0.0035)))
+      const newZoom    = Math.max(1, Math.min(128, zoom * Math.exp(-e.deltaY * 0.0035)))
       const newVisible = durationMs / newZoom
       onZoom?.(newZoom, Math.max(0, Math.min(cursorMs - cursorFrac * newVisible, durationMs - newVisible)))
     }

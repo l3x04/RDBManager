@@ -154,7 +154,7 @@ export default function WaveformPanel() {
   }, [isPlaying, startPlayback])
 
   const handleZoom = (newZoom, newScroll) => {
-    setZoom(Math.max(1, Math.min(64, newZoom)))
+    setZoom(Math.max(1, Math.min(128, newZoom)))
     setScrollMs(Math.max(0, newScroll))
   }
 

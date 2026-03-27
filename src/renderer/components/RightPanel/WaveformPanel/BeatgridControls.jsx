@@ -101,7 +101,7 @@ export default function BeatgridControls({
           <span style={{ fontSize: 11, color: 'var(--text-secondary)', minWidth: 36, textAlign: 'center' }}>
             {zoom >= 10 ? zoom.toFixed(0) : zoom.toFixed(1)}×
           </span>
-          <button style={btnStyle} onClick={onZoomIn} disabled={zoom >= 64}>+</button>
+          <button style={btnStyle} onClick={onZoomIn} disabled={zoom >= 128}>+</button>
         </div>
       </div>
 
