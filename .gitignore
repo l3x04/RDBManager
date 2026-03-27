@@ -1,0 +1,16 @@
+node_modules
+dist
+out
+.DS_Store
+*.log
+.superpowers/brainstorm/391-1774615343/content/font-options.html
+.superpowers/brainstorm/391-1774615343/content/main-layout.html
+.superpowers/brainstorm/391-1774615343/content/rules-editor-v2.html
+.superpowers/brainstorm/391-1774615343/content/rules-editor.html
+.superpowers/brainstorm/391-1774615343/content/waiting.html
+.superpowers/brainstorm/391-1774615343/content/waveform-type.html
+.superpowers/brainstorm/391-1774615343/state/server-stopped
+.superpowers/brainstorm/391-1774615343/state/server.pid
+Lex's Cue Editor/Backup_Input/rekordbox_bak_20251209.zip
+docs/superpowers/specs/2026-03-27-cue-editor-design.md
+docs/superpowers/plans/2026-03-27-cue-editor.md
