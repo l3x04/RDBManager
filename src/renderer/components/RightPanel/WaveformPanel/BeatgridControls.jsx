@@ -9,7 +9,47 @@ const btnStyle = {
   fontSize: 11, padding: '3px 7px', cursor: 'pointer', fontFamily: 'inherit', lineHeight: 1.4,
 }
 
-export default function BeatgridControls({ track, zoom, onZoomIn, onZoomOut, scrollMs, durationMs, visibleMs, onScroll }) {
+function PositionBar({ scrollMs, durationMs, visibleMs, onScroll }) {
+  if (!durationMs) return null
+  const frac   = scrollMs / durationMs
+  const thumbW = Math.max(0.03, visibleMs / durationMs)
+
+  const handlePointerDown = (e) => {
+    e.currentTarget.setPointerCapture(e.pointerId)
+    seek(e)
+  }
+  const seek = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const f    = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+    onScroll(Math.max(0, Math.min(f * durationMs - visibleMs / 2, durationMs - visibleMs)))
+  }
+
+  return (
+    <div
+      onPointerDown={handlePointerDown}
+      onPointerMove={e => { if (e.buttons === 1) seek(e) }}
+      style={{
+        height: 4, background: 'rgba(255,255,255,0.07)', cursor: 'pointer',
+        margin: '0 12px 7px', borderRadius: 2, position: 'relative', overflow: 'hidden',
+      }}
+    >
+      <div style={{
+        position: 'absolute',
+        left: `${frac * 100}%`,
+        width: `${thumbW * 100}%`,
+        top: 0, bottom: 0,
+        background: 'rgba(10,132,255,0.75)',
+        borderRadius: 2,
+      }} />
+    </div>
+  )
+}
+
+export default function BeatgridControls({
+  track, zoom, onZoomIn, onZoomOut,
+  scrollMs, durationMs, visibleMs, onScroll,
+  isPlaying, onPlayPause, hasAudio,
+}) {
   const adj    = useAppStore(s => s.trackAdjustments[track?.id] ?? DEFAULT_ADJ)
   const setAdj = useAppStore(s => s.setTrackAdjustment)
 
@@ -22,8 +62,19 @@ export default function BeatgridControls({ track, zoom, onZoomIn, onZoomOut, scr
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 12px', borderTop: '1px solid var(--border)', background: 'var(--bg-panel)' }}>
+
+        {/* Play / Pause */}
+        <button
+          style={{ ...btnStyle, fontSize: 13, padding: '2px 9px', opacity: hasAudio ? 1 : 0.35 }}
+          onClick={onPlayPause}
+          disabled={!hasAudio}
+          title={isPlaying ? 'Pause' : 'Play'}
+        >
+          {isPlaying ? '⏸' : '▶'}
+        </button>
+
         {/* BPM */}
-        <span style={{ fontSize: 10, color: 'var(--text-tertiary)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>BPM</span>
+        <span style={{ fontSize: 10, color: 'var(--text-tertiary)', letterSpacing: '0.06em', textTransform: 'uppercase', marginLeft: 4 }}>BPM</span>
         <button style={btnStyle} onClick={() => setBpm(Math.round((bpm - 0.1) * 10) / 10)}>−</button>
         <input
           type="text"
@@ -47,25 +98,17 @@ export default function BeatgridControls({ track, zoom, onZoomIn, onZoomOut, scr
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{ fontSize: 10, color: 'var(--text-tertiary)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Zoom</span>
           <button style={btnStyle} onClick={onZoomOut} disabled={zoom <= 1}>−</button>
-          <span style={{ fontSize: 11, color: 'var(--text-secondary)', minWidth: 36, textAlign: 'center' }}>{zoom >= 10 ? zoom.toFixed(0) : zoom.toFixed(1)}×</span>
+          <span style={{ fontSize: 11, color: 'var(--text-secondary)', minWidth: 36, textAlign: 'center' }}>
+            {zoom >= 10 ? zoom.toFixed(0) : zoom.toFixed(1)}×
+          </span>
           <button style={btnStyle} onClick={onZoomIn} disabled={zoom >= 64}>+</button>
         </div>
       </div>
 
-      {/* Scroll slider — only when zoomed in */}
-      {zoom > 1 && durationMs > 0 && (
-        <div style={{ padding: '0 12px 6px', background: 'var(--bg-panel)' }}>
-          <input
-            type="range"
-            min={0}
-            max={Math.max(0, durationMs - visibleMs)}
-            step={100}
-            value={scrollMs}
-            onChange={e => onScroll(Number(e.target.value))}
-            style={{ width: '100%', accentColor: 'var(--accent)', cursor: 'pointer' }}
-          />
-        </div>
-      )}
+      {/* Position bar — always visible, thin clean track indicator */}
+      <div style={{ background: 'var(--bg-panel)', paddingTop: 2 }}>
+        <PositionBar scrollMs={scrollMs} durationMs={durationMs} visibleMs={visibleMs} onScroll={onScroll} />
+      </div>
     </div>
   )
 }
