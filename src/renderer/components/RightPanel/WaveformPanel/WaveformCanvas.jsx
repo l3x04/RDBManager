@@ -38,7 +38,7 @@ function resolvePx(slice, x, W) {
 }
 
 export default function WaveformCanvas({
-  track, peaks, loading,
+  track, peaks, audioDurationMs, loading,
   gridOffsetMs = 0, bpmOverride = null,
   startMs = 0, endMs,
   zoom = 1, scrollMs = 0,
@@ -60,6 +60,7 @@ export default function WaveformCanvas({
 
     const bpm        = bpmOverride ?? track.bpm
     const durationMs = track.duration * 1000
+    const waveformMs = audioDurationMs ?? durationMs
     const visEnd     = endMs ?? durationMs
     const spanMs     = visEnd - startMs
     if (spanMs <= 0) return
@@ -73,15 +74,18 @@ export default function WaveformCanvas({
       ctx.fillText('Loading waveform…', W / 2, H / 2 + 4)
       ctx.textAlign = 'left'
     } else if (peaks && peaks.length > 0) {
-      const startFrac = startMs / durationMs
-      const endFrac   = visEnd  / durationMs
-      const i0        = Math.floor(startFrac * peaks.length)
-      const i1        = Math.ceil(endFrac   * peaks.length)
-      const slice     = peaks.slice(i0, i1)
-      const mid       = H / 2
+      // Only draw waveform for the portion covered by peaks (waveformMs <= durationMs)
+      const effectiveEnd = Math.min(visEnd, waveformMs)
+      const waveW        = Math.round((effectiveEnd - startMs) / spanMs * W)
+      const startFrac    = startMs      / waveformMs
+      const endFrac      = effectiveEnd / waveformMs
+      const i0           = Math.floor(startFrac * peaks.length)
+      const i1           = Math.ceil(endFrac   * peaks.length)
+      const slice        = peaks.slice(i0, i1)
+      const mid          = H / 2
 
-      for (let x = 0; x < W; x++) {
-        const p = resolvePx(slice, x, W)
+      for (let x = 0; x < waveW; x++) {
+        const p = resolvePx(slice, x, waveW)
         if (!p) continue
 
         // Symmetric: use the larger of the two sides as the amplitude
@@ -158,7 +162,7 @@ export default function WaveformCanvas({
     for (const mc of (track.memoryCues ?? []))
       drawMarker(mc.positionMs, '●', mc.colour ?? '#ffd60a')
 
-  }, [track, peaks, loading, gridOffsetMs, bpmOverride, startMs, endMs, track?.beats])
+  }, [track, peaks, audioDurationMs, loading, gridOffsetMs, bpmOverride, startMs, endMs, track?.beats])
 
   // ── Interaction (stable handlers via propsRef) ───────────────────────────
   useEffect(() => {

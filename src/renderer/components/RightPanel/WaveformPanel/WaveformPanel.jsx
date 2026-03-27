@@ -22,7 +22,10 @@ function extractPeaks(audioBuffer) {
     }
     out[i] = { min, max, rms: Math.sqrt(sumSq / (end - start)) }
   }
-  return out
+  // peaks cover exactly spb*NUM_BARS samples — use this as the time reference
+  // so peak index maps linearly to ms with no stretch
+  const audioDurationMs = (spb * NUM_BARS) / audioBuffer.sampleRate * 1000
+  return { peaks: out, audioDurationMs }
 }
 
 export default function WaveformPanel() {
@@ -42,7 +45,7 @@ export default function WaveformPanel() {
 
   useEffect(() => {
     if (!track) { setPeaks(null); return }
-    if (peakCache.current.has(track.id)) { setPeaks(peakCache.current.get(track.id)); return }
+    if (peakCache.current.has(track.id)) { setPeaks(peakCache.current.get(track.id)); setLoading(false); return }
     let cancelled = false
     async function load() {
       setLoading(true)
@@ -54,9 +57,9 @@ export default function WaveformPanel() {
         const ab  = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength)
         const decoded = await audioCtx.current.decodeAudioData(ab)
         if (cancelled) return
-        const p = extractPeaks(decoded)
-        peakCache.current.set(track.id, p)
-        setPeaks(p)
+        const entry = extractPeaks(decoded)
+        peakCache.current.set(track.id, entry)
+        setPeaks(entry)
       } catch (e) {
         console.warn('Waveform load failed:', e.message)
         setPeaks(null)
@@ -84,7 +87,8 @@ export default function WaveformPanel() {
       {track ? (
         <WaveformCanvas
           track={track}
-          peaks={peaks}
+          peaks={peaks?.peaks ?? null}
+          audioDurationMs={peaks?.audioDurationMs ?? durationMs}
           loading={loading}
           gridOffsetMs={adj.gridOffsetMs ?? 0}
           bpmOverride={adj.bpmOverride}
