@@ -3,8 +3,8 @@ import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
-import yauzl from 'yauzl'
-import { loadBeatsForTracks } from './anlz.js'
+import { loadBeatsForTracks, updateAnlzBpm } from './anlz.js'
+import { applyWritesToDb, applyBpmOverrides } from './dbWrite.js'
 
 // Rekordbox 6.x confirmed table names
 const TRACK_TABLE = 'djmdContent'
@@ -32,46 +32,23 @@ const INDEX_TO_COLOUR = Object.fromEntries(
 )
 
 /**
- * Extract master.db from a rekordbox backup zip and decrypt it (SQLCipher 4).
+ * Decrypt the local rekordbox master.db (SQLCipher 4).
  * Returns the path to a temporary plain-SQLite file.
  */
-export function extractAndDecryptZip(zipPath) {
-  return new Promise((resolve, reject) => {
-    yauzl.open(zipPath, { lazyEntries: true }, (err, zip) => {
-      if (err) return reject(err)
-      zip.readEntry()
-      zip.on('entry', entry => {
-        if (entry.fileName === 'master.db') {
-          zip.openReadStream(entry, (err, stream) => {
-            if (err) return reject(err)
-            const chunks = []
-            stream.on('data', c => chunks.push(c))
-            stream.on('end', () => {
-              try {
-                const decData = decryptSqlCipher4(Buffer.concat(chunks))
-                const tmpPath = path.join(os.tmpdir(), `rekordbox_dec_${Date.now()}.db`)
-                fs.writeFileSync(tmpPath, decData)
-                zip.close()
-                resolve(tmpPath)
-              } catch (e) {
-                reject(e)
-              }
-            })
-            stream.on('error', reject)
-          })
-        } else {
-          zip.readEntry()
-        }
-      })
-      zip.on('error', reject)
-    })
-  })
+export function decryptLocalDb() {
+  const localDbPath = path.join(os.homedir(), 'AppData', 'Roaming', 'Pioneer', 'rekordbox', 'master.db')
+  if (!fs.existsSync(localDbPath))
+    throw new Error('rekordbox database not found. Is rekordbox installed?')
+  const enc = fs.readFileSync(localDbPath)
+  const dec = decryptSqlCipher4(enc)
+  const tmpPath = path.join(os.tmpdir(), `rb_local_${Date.now()}.db`)
+  fs.writeFileSync(tmpPath, dec)
+  return tmpPath
 }
 
 function decryptSqlCipher4(encData) {
   const keySalt = encData.slice(0, 16)
-  const dk = crypto.pbkdf2Sync(DB_PASSPHRASE, keySalt, DB_KDF_ITER, DB_KEY_SIZE * 2, 'sha512')
-  const encKey = dk.slice(0, DB_KEY_SIZE)
+  const encKey = crypto.pbkdf2Sync(DB_PASSPHRASE, keySalt, DB_KDF_ITER, DB_KEY_SIZE, 'sha512')
   const pageCount = Math.floor(encData.length / DB_PAGE_SIZE)
   const outPages = []
   for (let i = 0; i < pageCount; i++) {
@@ -92,6 +69,114 @@ function decryptSqlCipher4(encData) {
     outPages.push(outPage)
   }
   return Buffer.concat(outPages)
+}
+
+function encryptSqlCipher4(plainData, salt) {
+  const encKey = crypto.pbkdf2Sync(DB_PASSPHRASE, salt, DB_KDF_ITER, DB_KEY_SIZE, 'sha512')
+
+  // HMAC key: PBKDF2(encKey, salt ^ 0x3a, 2 iterations, 32 bytes)
+  const hmacSalt = Buffer.from(salt)
+  for (let i = 0; i < hmacSalt.length; i++) hmacSalt[i] ^= 0x3a
+  const hmacKey = crypto.pbkdf2Sync(encKey, hmacSalt, 2, DB_KEY_SIZE, 'sha512')
+
+  const pageCount = Math.floor(plainData.length / DB_PAGE_SIZE)
+  const outPages  = []
+
+  for (let i = 0; i < pageCount; i++) {
+    const page    = plainData.slice(i * DB_PAGE_SIZE, (i + 1) * DB_PAGE_SIZE)
+    const outPage = Buffer.alloc(DB_PAGE_SIZE, 0)
+    const iv      = crypto.randomBytes(DB_IV_SIZE)
+
+    // Plaintext: page content before the reserve area
+    const ptData = i === 0
+      ? Buffer.from(page.slice(16, DB_PAGE_SIZE - DB_RESERVE_SIZE))   // skip SQLite header (4000 bytes)
+      : Buffer.from(page.slice(0, DB_PAGE_SIZE - DB_RESERVE_SIZE))    // 4016 bytes
+
+    // Page 0: restore the reserved-space byte (cleared during decryption)
+    if (i === 0) ptData[4] = DB_RESERVE_SIZE
+
+    // Encrypt
+    const cipher = crypto.createCipheriv('aes-256-cbc', encKey, iv)
+    cipher.setAutoPadding(false)
+    const ct = Buffer.concat([cipher.update(ptData), cipher.final()])
+
+    // Assemble page
+    if (i === 0) { salt.copy(outPage, 0); ct.copy(outPage, 16) }
+    else         { ct.copy(outPage, 0) }
+    iv.copy(outPage, DB_PAGE_SIZE - DB_RESERVE_SIZE)
+
+    // HMAC-SHA512: page 0 skips salt (bytes 16:4032), others use full (0:4032)
+    const hmacStart = i === 0 ? 16 : 0
+    const pgnoBytes = Buffer.alloc(4)
+    pgnoBytes.writeUInt32LE(i + 1)
+    const hmac = crypto.createHmac('sha512', hmacKey)
+      .update(outPage.slice(hmacStart, DB_PAGE_SIZE - DB_RESERVE_SIZE + DB_IV_SIZE))
+      .update(pgnoBytes)
+      .digest()
+    hmac.copy(outPage, DB_PAGE_SIZE - DB_RESERVE_SIZE + DB_IV_SIZE, 0, DB_RESERVE_SIZE - DB_IV_SIZE)
+
+    outPages.push(outPage)
+  }
+  return Buffer.concat(outPages)
+}
+
+const RB_MASTER_DB = path.join(os.homedir(), 'AppData', 'Roaming', 'Pioneer', 'rekordbox', 'master.db')
+
+/**
+ * Apply cue writes directly to the rekordbox master.db.
+ * Creates a .bak backup before overwriting.
+ */
+export function writeToRekordbox(decryptedDbPath, writes, trackAdjustments, anlzPathMap) {
+  // 1. Apply writes to the decrypted DB
+  console.log('[save] Opening decrypted DB for writing:', decryptedDbPath)
+  const db = new Database(decryptedDbPath)
+  try {
+    if (writes.length > 0) {
+      applyWritesToDb(db, writes)
+      console.log('[save] Applied', writes.length, 'cue writes')
+    }
+    if (trackAdjustments) {
+      applyBpmOverrides(db, trackAdjustments)
+      const bpmCount = Object.values(trackAdjustments).filter(a => a.bpmOverride != null).length
+      console.log('[save] Applied', bpmCount, 'BPM overrides')
+    }
+  } finally { db.close() }
+
+  // 1b. Update ANLZ files for BPM changes (jogwheel/deck tempo)
+  if (trackAdjustments && anlzPathMap) {
+    for (const [trackId, adj] of Object.entries(trackAdjustments)) {
+      if (adj.bpmOverride != null && adj.bpmOverride > 0) {
+        const anlzPath = anlzPathMap.get(trackId) ?? anlzPathMap.get(Number(trackId))
+        if (anlzPath) updateAnlzBpm(anlzPath, adj.bpmOverride)
+      }
+    }
+  }
+
+  // 2. Read modified plain DB
+  const plainData = fs.readFileSync(decryptedDbPath)
+  console.log('[save] Plain DB size:', plainData.length, 'bytes')
+
+  // 3. Read original encrypted DB to get the salt
+  console.log('[save] Reading original:', RB_MASTER_DB)
+  const origEnc = fs.readFileSync(RB_MASTER_DB)
+  const salt = origEnc.slice(0, 16)
+
+  // 4. Re-encrypt
+  const encData = encryptSqlCipher4(plainData, salt)
+  console.log('[save] Re-encrypted:', encData.length, 'bytes')
+
+  // 5. Backup original
+  const bakPath = RB_MASTER_DB + '.bak'
+  fs.copyFileSync(RB_MASTER_DB, bakPath)
+  console.log('[save] Backup created:', bakPath)
+
+  // 6. Write re-encrypted DB (also remove WAL/SHM to avoid conflicts)
+  fs.writeFileSync(RB_MASTER_DB, encData)
+  try { fs.unlinkSync(RB_MASTER_DB + '-wal') } catch {}
+  try { fs.unlinkSync(RB_MASTER_DB + '-shm') } catch {}
+  console.log('[save] Written to', RB_MASTER_DB)
+
+  return bakPath
 }
 
 export function openDb(filePath) {
@@ -153,13 +238,15 @@ export function loadAllTracksWithCues(db) {
     track.hotcues    = hotcues
     track.memoryCues = memoryCues
   }
-  // Load exact beat positions from local ANLZ files
-  const beatsMap = loadBeatsForTracks(tracks, decryptSqlCipher4)
+  // Load exact beat positions from ANLZ files (paths come from the same DB)
+  const beatsMap = loadBeatsForTracks(tracks)
+  // Build ANLZ path map before clearing _anlzPath (needed for ANLZ writes)
+  const anlzPaths = new Map(tracks.map(t => [t.id, t._anlzPath]).filter(([, p]) => p))
   for (const track of tracks) {
     track.beats    = beatsMap.get(track.id) ?? null
     track._anlzPath = undefined // don't send internal path to renderer
   }
-  return tracks
+  return { tracks, anlzPaths }
 }
 
 // Waveform data lives in external ANLZ files, not in the backup DB.

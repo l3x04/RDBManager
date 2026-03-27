@@ -11,6 +11,18 @@ const COLOUR_TO_INDEX = {
   '#30d158': 4, '#64d2ff': 5, '#0a84ff': 6, '#bf5af2': 7,
 }
 
+export function applyBpmOverrides(db, trackAdjustments) {
+  const updateBpm = db.prepare(`UPDATE djmdContent SET BPM = ?, updated_at = datetime('now') WHERE ID = ?`)
+  const run = db.transaction(() => {
+    for (const [trackId, adj] of Object.entries(trackAdjustments)) {
+      if (adj.bpmOverride != null && adj.bpmOverride > 0) {
+        updateBpm.run(Math.round(adj.bpmOverride * 100), trackId)
+      }
+    }
+  })
+  run()
+}
+
 export function applyWritesToDb(db, writes) {
   // Get max existing ID to generate new unique numeric IDs
   const maxRow = db.prepare(`SELECT MAX(CAST(ID AS INTEGER)) AS maxId FROM ${CUE_TABLE}`).get()

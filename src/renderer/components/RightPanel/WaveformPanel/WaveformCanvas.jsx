@@ -108,7 +108,9 @@ export default function WaveformCanvas({
     }
 
     // ── Beat grid ─────────────────────────────────────────────────────────
-    if (track.beats && track.beats.length > 0) {
+    const useAnlz = track.beats && track.beats.length > 0 && !bpmOverride
+    if (useAnlz) {
+      // Exact ANLZ positions — used when BPM hasn't been overridden
       for (const beat of track.beats) {
         const t = beat.timeMs + gridOffsetMs
         if (t < startMs || t > visEnd) continue
@@ -119,9 +121,11 @@ export default function WaveformCanvas({
         ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke()
       }
     } else if (bpm > 0) {
+      // Computed grid: use first ANLZ beat as anchor if available
+      const firstBeatMs = (track.beats && track.beats.length > 0) ? track.beats[0].timeMs : 0
       const beatMs    = 60000 / bpm
       const barMs     = beatMs * 4
-      const gridStart = ((gridOffsetMs % barMs) + barMs) % barMs
+      const gridStart = (((firstBeatMs + gridOffsetMs) % barMs) + barMs) % barMs
       let beatIndex   = Math.ceil((startMs - gridStart) / beatMs)
       if (beatIndex < 0) beatIndex = 0
       for (;;) {

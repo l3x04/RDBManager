@@ -5,7 +5,6 @@ export const DEFAULT_SESSION = {
   ruleSets: [],
   selectedTrackIds: [],
   trackAdjustments: {},
-  lastDbPath: null,
 }
 
 export function readSession(filePath) {

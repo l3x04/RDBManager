@@ -2,16 +2,14 @@ import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import fs from 'fs'
 import path from 'path'
-import { openDb, loadAllTracksWithCues, loadWaveform, extractAndDecryptZip } from './db.js'
+import { openDb, loadAllTracksWithCues, decryptLocalDb, writeToRekordbox } from './db.js'
 import { readSession, writeSession, DEFAULT_SESSION } from './session.js'
-import { watchInputFolder } from './watcher.js'
-import { generateOutputDb } from './dbWrite.js'
 import { generateCueWrites } from '../renderer/utils/cueCalc.js'
 
 // Module-level state
 let currentDb = null
 let tracks = []
-let currentDbPath = null
+let anlzPaths = new Map()          // trackId → ANLZ relative path (for writing)
 let mainWindow = null
 let currentDecryptedDbPath = null  // temp .db path used for output generation
 let tempDbPath = null              // temp file to clean up on next load
@@ -49,43 +47,42 @@ function createWindow() {
   }
 }
 
-async function loadDbFromPath(filePath) {
+function loadLocalDb() {
   if (currentDb) {
-    try { currentDb.close() } catch { /* ignore */ }
+    try { currentDb.close() } catch {}
     currentDb = null
   }
-  // Clean up previous temp decrypted file
   if (tempDbPath) {
-    try { fs.unlinkSync(tempDbPath) } catch { /* ignore */ }
+    try { fs.unlinkSync(tempDbPath) } catch {}
     tempDbPath = null
   }
 
-  let dbPath = filePath
-  if (filePath.endsWith('.zip')) {
-    dbPath = await extractAndDecryptZip(filePath)
-    tempDbPath = dbPath
-  }
-
+  const dbPath = decryptLocalDb()  // throws if not found or decryption fails
+  tempDbPath = dbPath
   currentDb = openDb(dbPath)
-  tracks = loadAllTracksWithCues(currentDb)
-  currentDbPath = filePath
+  const result = loadAllTracksWithCues(currentDb)
+  tracks = result.tracks
+  anlzPaths = result.anlzPaths
   currentDecryptedDbPath = dbPath
   return tracks.length
 }
 
 function registerIpc() {
-  ipcMain.handle('db:load', async (_e, filePath) => {
+  ipcMain.handle('db:loadLocal', async () => {
     try {
-      const count = await loadDbFromPath(filePath)
+      const count = loadLocalDb()
       return { ok: true, count }
     } catch (err) {
-      return { ok: false, error: err.message }
+      const msg = err.message.includes('not found')
+        ? 'rekordbox database not found. Is rekordbox installed?'
+        : 'Failed to read rekordbox database — unsupported version?'
+      return { ok: false, error: msg }
     }
   })
 
-  ipcMain.handle('db:reload', async (_e, filePath) => {
+  ipcMain.handle('db:reload', async () => {
     try {
-      const count = await loadDbFromPath(filePath ?? currentDbPath)
+      const count = loadLocalDb()
       return { ok: true, count }
     } catch (err) {
       return { ok: false, error: err.message }
@@ -108,7 +105,7 @@ function registerIpc() {
     }
   })
 
-  ipcMain.handle('generate', async (_e, { selectedTrackIds, ruleSets, trackAdjustments, sourceDbPath }) => {
+  ipcMain.handle('generate', async (_e, { selectedTrackIds, ruleSets, trackAdjustments }) => {
     try {
       const writes = generateCueWrites({
         tracks,
@@ -116,14 +113,50 @@ function registerIpc() {
         ruleSets,
         trackAdjustments,
       })
-      const outputDir = app.isPackaged
-        ? path.join(path.dirname(app.getPath('exe')), "Lex's Cue Editor", 'Backup_Output')
-        : path.join(app.getAppPath(), "Lex's Cue Editor", 'Backup_Output')
-      fs.mkdirSync(outputDir, { recursive: true })
-      const outPath = generateOutputDb(currentDecryptedDbPath, outputDir, writes)
+      if (writes.length === 0) return { ok: false, error: 'No cue writes generated' }
+
+      writeToRekordbox(currentDecryptedDbPath, writes, null, null)
 
       const tracksProcessed = new Set(writes.map(w => w.trackId)).size
-      return { ok: true, tracksProcessed, cuesWritten: writes.length, tracksSkipped: selectedTrackIds.length - tracksProcessed, outPath }
+      return {
+        ok: true,
+        tracksProcessed,
+        cuesWritten: writes.length,
+        tracksSkipped: selectedTrackIds.length - tracksProcessed,
+      }
+    } catch (err) {
+      return { ok: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('db:saveToRb', async (_e, { selectedTrackIds, ruleSets, trackAdjustments }) => {
+    try {
+      const writes = (ruleSets && ruleSets.length > 0 && selectedTrackIds && selectedTrackIds.length > 0)
+        ? generateCueWrites({
+            tracks,
+            selectedTrackIds: new Set(selectedTrackIds),
+            ruleSets,
+            trackAdjustments,
+          })
+        : []
+
+      // Close readonly DB so the write can proceed without lock conflicts
+      if (currentDb) { try { currentDb.close() } catch {} currentDb = null }
+
+      writeToRekordbox(currentDecryptedDbPath, writes, trackAdjustments, anlzPaths)
+
+      // Reopen and reload tracks with updated data
+      currentDb = openDb(currentDecryptedDbPath)
+      const result = loadAllTracksWithCues(currentDb)
+      tracks = result.tracks
+      anlzPaths = result.anlzPaths
+
+      const bpmChanges = Object.values(trackAdjustments || {}).filter(a => a.bpmOverride != null).length
+      return {
+        ok: true,
+        cuesWritten: writes.length,
+        bpmChanges,
+      }
     } catch (err) {
       return { ok: false, error: err.message }
     }
@@ -131,7 +164,6 @@ function registerIpc() {
 
   ipcMain.handle('file:readAudio', async (_e, filePath) => {
     try {
-      // Normalise path — rekordbox may use forward slashes or /Drive/... notation
       let p = filePath ?? ''
       const driveMatch = p.match(/^\/([A-Za-z])\/(.+)$/)
       if (driveMatch) p = `${driveMatch[1]}:/${driveMatch[2]}`
@@ -147,24 +179,23 @@ function registerIpc() {
   })
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   SESSION_PATH = join(app.getPath('userData'), 'session.json')
   registerIpc()
   createWindow()
 
-  // Watch Backup_Input for .zip files
-  // In dev: app.getAppPath() = CUEEDITOR root, which contains "Lex's Cue Editor/"
-  // In production (packaged): this path will need to be updated to point to the
-  // directory alongside the .exe (e.g. path.dirname(app.getPath('exe')))
-  const inputDir = join(app.getAppPath(), "Lex's Cue Editor", 'Backup_Input')
-  watchInputFolder(inputDir, async (dbPath) => {
-    try {
-      await loadDbFromPath(dbPath)
-      mainWindow?.webContents.send('db:loaded', { dbPath, trackCount: tracks.length })
-    } catch (err) {
-      console.error('Failed to load DB from watcher:', err.message)
-    }
-  })
+  // Auto-load local rekordbox database
+  try {
+    loadLocalDb()
+    mainWindow?.webContents.once('did-finish-load', () => {
+      mainWindow?.webContents.send('db:loaded', { trackCount: tracks.length })
+    })
+  } catch (err) {
+    console.error('Auto-load failed:', err.message)
+    mainWindow?.webContents.once('did-finish-load', () => {
+      mainWindow?.webContents.send('db:error', { error: err.message })
+    })
+  }
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

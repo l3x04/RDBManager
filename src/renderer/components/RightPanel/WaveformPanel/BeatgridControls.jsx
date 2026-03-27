@@ -1,4 +1,5 @@
 // src/renderer/components/RightPanel/WaveformPanel/BeatgridControls.jsx
+import { useState, useEffect } from 'react'
 import { useAppStore } from '../../../store/appStore.js'
 
 const DEFAULT_ADJ = { bpmOverride: null, gridOffsetMs: 0 }
@@ -53,11 +54,15 @@ export default function BeatgridControls({
   const adj    = useAppStore(s => s.trackAdjustments[track?.id] ?? DEFAULT_ADJ)
   const setAdj = useAppStore(s => s.setTrackAdjustment)
 
+  const bpm = adj.bpmOverride ?? (track?.bpm ?? 0)
+  const [bpmText, setBpmText] = useState(bpm.toFixed(1))
+  useEffect(() => { setBpmText(bpm.toFixed(1)) }, [bpm])
+
   if (!track) return null
 
-  const bpm    = adj.bpmOverride ?? track.bpm
   const nudge  = (deltaMs) => setAdj(track.id, { gridOffsetMs: (adj.gridOffsetMs ?? 0) + deltaMs })
-  const setBpm = (v) => setAdj(track.id, { bpmOverride: isNaN(v) || v <= 0 ? null : Math.round(v * 10) / 10 })
+  const commitBpm = (v) => setAdj(track.id, { bpmOverride: isNaN(v) || v <= 0 ? null : Math.round(v * 10) / 10 })
+  const setBpmFromButtons = (v) => { commitBpm(v); setBpmText(v.toFixed(1)) }
 
   return (
     <div>
@@ -75,18 +80,20 @@ export default function BeatgridControls({
 
         {/* BPM */}
         <span style={{ fontSize: 10, color: 'var(--text-tertiary)', letterSpacing: '0.06em', textTransform: 'uppercase', marginLeft: 4 }}>BPM</span>
-        <button style={btnStyle} onClick={() => setBpm(Math.round((bpm - 0.1) * 10) / 10)}>−</button>
+        <button style={btnStyle} onClick={() => setBpmFromButtons(Math.round((bpm - 0.1) * 10) / 10)}>−</button>
         <input
           type="text"
-          value={bpm.toFixed(1)}
-          onChange={e => { const v = parseFloat(e.target.value); setBpm(v) }}
+          value={bpmText}
+          onChange={e => setBpmText(e.target.value)}
+          onBlur={() => commitBpm(parseFloat(bpmText))}
+          onKeyDown={e => { if (e.key === 'Enter') { commitBpm(parseFloat(bpmText)); e.target.blur() } }}
           style={{
             width: 52, background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border)',
             borderRadius: 'var(--radius-sm)', padding: '3px 6px', fontSize: 12,
             color: 'var(--text-primary)', textAlign: 'center', fontFamily: 'inherit', outline: 'none',
           }}
         />
-        <button style={btnStyle} onClick={() => setBpm(Math.round((bpm + 0.1) * 10) / 10)}>+</button>
+        <button style={btnStyle} onClick={() => setBpmFromButtons(Math.round((bpm + 0.1) * 10) / 10)}>+</button>
 
         {/* Grid nudge */}
         <span style={{ fontSize: 10, color: 'var(--text-tertiary)', marginLeft: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Grid</span>

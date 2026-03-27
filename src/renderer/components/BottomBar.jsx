@@ -2,13 +2,16 @@
 import { useAppStore } from '../store/appStore.js'
 import { buildPreflightWarnings } from '../utils/cueCalc.js'
 
-export default function BottomBar({ onGenerate }) {
+export default function BottomBar({ onGenerate, onSaveToRb }) {
   const tracks   = useAppStore(s => s.tracks)
   const selected = useAppStore(s => s.selectedTrackIds)
   const ruleSets = useAppStore(s => s.ruleSets)
+  const adjs     = useAppStore(s => s.trackAdjustments)
 
   const warnings = buildPreflightWarnings({ selectedTrackIds: selected, tracks, ruleSets })
   const warnMsg = warnings.map(w => `${w.missingCount} missing hotcue ${w.baseHotcue}`).join(', ')
+
+  const hasChanges = Object.keys(adjs).length > 0 || (selected.size > 0 && ruleSets.length > 0)
 
   return (
     <div style={{ height: 52, background: 'var(--bg-panel)', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', padding: '0 16px', gap: 12, flexShrink: 0 }}>
@@ -28,7 +31,19 @@ export default function BottomBar({ onGenerate }) {
           opacity: selected.size === 0 || ruleSets.length === 0 ? 0.4 : 1,
         }}
       >
-        Generate →
+        Generate Cues
+      </button>
+      <button
+        onClick={onSaveToRb}
+        disabled={!hasChanges}
+        style={{
+          background: '#30d158', color: '#fff', fontSize: 12, fontWeight: 600,
+          padding: '8px 20px', borderRadius: 'var(--radius-md)', border: 'none',
+          cursor: hasChanges ? 'pointer' : 'not-allowed',
+          opacity: hasChanges ? 1 : 0.4,
+        }}
+      >
+        Save to rekordbox
       </button>
     </div>
   )
