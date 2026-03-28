@@ -75,7 +75,7 @@ export default function CueEditor({ track, playheadMs }) {
     const usedSlots = new Set(current.hotcues.map(h => h.slot))
     const freeSlot = SLOTS.find(s => !usedSlots.has(s)) ?? 'A'
     const updated = { ...current, hotcues: [...current.hotcues, {
-      slot: freeSlot, positionMs: playheadMs ?? 0, colour: RB_COLOURS[0],
+      slot: freeSlot, positionMs: playheadMs ?? 0, colour: '#28e214',
     }]}
     console.log('[cue] addHotcue trackId:', track.id, 'type:', typeof track.id, 'hotcues:', updated.hotcues.length)
     setCueOverrides(track.id, updated)

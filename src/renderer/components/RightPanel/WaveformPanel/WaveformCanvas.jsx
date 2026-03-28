@@ -160,7 +160,7 @@ export default function WaveformCanvas({
     const activeHotcues = cueOverrides ? (cueOverrides.hotcues ?? []) : (track.hotcues ?? [])
     const activeMemoryCues = cueOverrides ? (cueOverrides.memoryCues ?? []) : (track.memoryCues ?? [])
     for (const hc of activeHotcues)
-      drawMarker(hc.positionMs, hc.slot, hc.colour ?? '#ff375f')
+      drawMarker(hc.positionMs, hc.slot, hc.colour ?? '#28e214')
     for (const mc of activeMemoryCues)
       drawMarker(mc.positionMs, '●', mc.colour ?? '#ffd60a')
 

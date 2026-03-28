@@ -54,7 +54,7 @@ export default function TrackRow({ track, selected, focused, onSelect, onFocus, 
             title={`Hotcue ${hc.slot}`}
             style={{
               width: 5, height: 16, borderRadius: 2,
-              background: hc.colour ?? '#ff375f',
+              background: hc.colour ?? '#28e214',
             }}
           />
         ))}

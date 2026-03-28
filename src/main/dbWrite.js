@@ -6,18 +6,23 @@ import { SLOT_TO_KIND } from './db.js'
 
 const CUE_TABLE = 'djmdCue'
 
-// App hex colours → rekordbox ColorTableIndex
-// Only confirmed mappings: 5=Green display, NULL=Green default
-// TODO: Verify remaining colour indices against actual rekordbox display
+// App hex colours → rekordbox ColorTableIndex (confirmed from actual rb cues)
 const COLOUR_TO_INDEX = {
-  '#30d158': null, // Green (default)
-  '#0a84ff': 2,    // Blue (confirmed by user)
-  '#ff375f': 1,
-  '#ff453a': 7,
-  '#ff9f0a': 3,
-  '#ffd60a': 4,
-  '#64d2ff': 6,
-  '#bf5af2': 8,
+  '#305aff': 1,
+  '#50b4ff': 5,
+  '#00e0ff': 9,
+  '#10b176': 18,
+  '#28e214': 22,
+  '#a5e116': 26,
+  '#b4be04': 30,
+  '#c3af04': 32,
+  '#e0641b': 38,
+  '#e62828': 42,
+  '#ff127b': 45,
+  '#de44cf': 49,
+  '#b432ff': 56,
+  '#aa72ff': 60,
+  '#6473ff': 62,
 }
 
 export function applyBpmOverrides(db, trackAdjustments) {

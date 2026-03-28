@@ -22,21 +22,27 @@ const DB_KDF_ITER = 256000
 export const KIND_TO_SLOT = { 1:'A', 2:'B', 3:'C', 5:'D', 6:'E', 7:'F', 8:'G', 9:'H' }
 export const SLOT_TO_KIND = { A:1, B:2, C:3, D:5, E:6, F:7, G:8, H:9 }
 
-// rekordbox ColorTableIndex → display colour
-// Confirmed: 2=Blue, 5=Green(NULL default). Others mapped from djmdColor + user feedback.
+// rekordbox ColorTableIndex → display colour (confirmed from actual rb cues)
 const INDEX_TO_COLOUR = {
-  1:  '#ff375f', // Pink
-  2:  '#0a84ff', // Blue (confirmed)
-  3:  '#ff9f0a', // Orange
-  4:  '#ffd60a', // Yellow
-  5:  '#30d158', // Green (confirmed)
-  6:  '#64d2ff', // Aqua
-  7:  '#ff453a', // Red
-  8:  '#bf5af2', // Purple
+  1:  '#305aff', // Deep blue
+  5:  '#50b4ff', // Sky blue
+  9:  '#00e0ff', // Cyan
+  18: '#10b176', // Teal green
+  22: '#28e214', // Bright green
+  26: '#a5e116', // Yellow-green
+  30: '#b4be04', // Olive
+  32: '#c3af04', // Dark yellow
+  38: '#e0641b', // Orange
+  42: '#e62828', // Red
+  45: '#ff127b', // Hot pink
+  49: '#de44cf', // Magenta
+  56: '#b432ff', // Purple
+  60: '#aa72ff', // Light purple
+  62: '#6473ff', // Blue-purple
 }
 
 // Default rekordbox 6 hotcue colour (green for all slots when no custom colour set)
-const DEFAULT_HOTCUE_COLOUR = '#30d158'
+const DEFAULT_HOTCUE_COLOUR = '#28e214'
 
 /**
  * Decrypt the local rekordbox master.db (SQLCipher 4).
@@ -231,10 +237,12 @@ export function writeToRekordbox(decryptedDbPath, writes, trackAdjustments, anlz
   const encData = encryptSqlCipher4(plainData, salt)
   console.log('[save] Re-encrypted:', encData.length, 'bytes')
 
-  // 5. Backup original
+  // 5. Backup original (both local .bak and safe external copy)
   const bakPath = RB_MASTER_DB + '.bak'
   fs.copyFileSync(RB_MASTER_DB, bakPath)
-  console.log('[save] Backup created:', bakPath)
+  const safeBak = path.join(os.homedir(), 'Documents', `rekordbox_backup_${Date.now()}.db`)
+  fs.copyFileSync(RB_MASTER_DB, safeBak)
+  console.log('[save] Backup created:', bakPath, 'and', safeBak)
 
   // 6. Write re-encrypted DB (also remove WAL/SHM to avoid conflicts)
   fs.writeFileSync(RB_MASTER_DB, encData)
