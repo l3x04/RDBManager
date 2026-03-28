@@ -94,6 +94,8 @@ export default function BeatgridControls({
           }}
         />
         <button style={btnStyle} onClick={() => setBpmFromButtons(Math.round((bpm + 0.1) * 10) / 10)}>+</button>
+        <button style={btnStyle} onClick={() => setBpmFromButtons(Math.round(bpm / 2 * 10) / 10)} title="Halve BPM">÷2</button>
+        <button style={btnStyle} onClick={() => setBpmFromButtons(Math.round(bpm * 2 * 10) / 10)} title="Double BPM">×2</button>
 
         {/* Grid nudge */}
         <span style={{ fontSize: 10, color: 'var(--text-tertiary)', marginLeft: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Grid</span>

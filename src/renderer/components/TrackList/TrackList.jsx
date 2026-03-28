@@ -1,5 +1,5 @@
 // src/renderer/components/TrackList/TrackList.jsx
-import { useRef, useMemo, useState } from 'react'
+import { useRef, useMemo, useState, useCallback } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useAppStore } from '../../store/appStore.js'
 import TrackRow from './TrackRow.jsx'
@@ -29,12 +29,38 @@ export default function TrackList() {
     })
   }, [allTracks, searchQuery, sortField, sortDir])
   const selected      = useAppStore(s => s.selectedTrackIds)
+  const adjs          = useAppStore(s => s.trackAdjustments)
   const focusedId     = useAppStore(s => s.focusedTrackId)
   const toggleTrack   = useAppStore(s => s.toggleTrack)
   const selectAll     = useAppStore(s => s.selectAll)
   const selectNone    = useAppStore(s => s.selectNone)
   const setSearch     = useAppStore(s => s.setSearchQuery)
   const setFocused    = useAppStore(s => s.setFocusedTrackId)
+
+  const lastClickedIdx = useRef(null)
+
+  const handleRowClick = useCallback((trackId, e) => {
+    const idx = tracks.findIndex(t => t.id === trackId)
+    setFocused(trackId)
+
+    if (e.shiftKey && lastClickedIdx.current != null) {
+      // Shift+click: select/tick range
+      const from = Math.min(lastClickedIdx.current, idx)
+      const to   = Math.max(lastClickedIdx.current, idx)
+      const rangeIds = tracks.slice(from, to + 1).map(t => t.id)
+      useAppStore.setState(s => {
+        const next = new Set(s.selectedTrackIds)
+        for (const id of rangeIds) next.add(id)
+        return { selectedTrackIds: next }
+      })
+    } else if (e.ctrlKey || e.metaKey) {
+      // Ctrl+click: toggle checkbox without losing others
+      toggleTrack(trackId)
+    } else {
+      // Plain click: just focus (no selection change)
+    }
+    lastClickedIdx.current = idx
+  }, [tracks, toggleTrack, setFocused])
 
   const parentRef = useRef(null)
   const virtualizer = useVirtualizer({
@@ -74,6 +100,8 @@ export default function TrackList() {
                   focused={focusedId === track.id}
                   onSelect={toggleTrack}
                   onFocus={setFocused}
+                  onRowClick={handleRowClick}
+                  bpmOverride={adjs[track.id]?.bpmOverride}
                 />
               </div>
             )

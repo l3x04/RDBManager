@@ -51,10 +51,12 @@ function resolveAnlzPath(anlzRelPath) {
 }
 
 /**
- * Update BPM (tempo) and recalculate beat positions in an ANLZ .DAT file.
- * Keeps the first beat position, recomputes all others from new BPM.
+ * Update beat grid in an ANLZ .DAT file.
+ * @param {string} anlzRelPath - relative ANLZ path from DB
+ * @param {number|null} newBpm - new BPM (null = keep original)
+ * @param {number} gridOffsetMs - shift all beats by this many ms (0 = no shift)
  */
-export function updateAnlzBpm(anlzRelPath, newBpm) {
+export function updateAnlzBeats(anlzRelPath, newBpm, gridOffsetMs) {
   const full = resolveAnlzPath(anlzRelPath)
   if (!fs.existsSync(full)) return false
 
@@ -74,23 +76,25 @@ export function updateAnlzBpm(anlzRelPath, newBpm) {
       const count = buf.readUInt32BE(pos + 20)
       if (count === 0) break
 
-      const newTempo = Math.round(newBpm * 100)  // BPM × 100 as uint16
       const firstBeatEo = pos + 24
       const firstBeatMs = buf.readUInt32BE(firstBeatEo + 4)
-      const beatMs = 60000 / newBpm  // ms per beat at new BPM
+      const origTempo = buf.readUInt16BE(firstBeatEo + 2)
+      const bpm = newBpm ?? (origTempo / 100)
+      const tempo = Math.round(bpm * 100)
+      const beatMs = 60000 / bpm
+      const anchor = firstBeatMs + (gridOffsetMs ?? 0)
 
       for (let i = 0; i < count; i++) {
         const eo = pos + 24 + i * 8
         if (eo + 8 > buf.length) break
 
-        // Update tempo
-        buf.writeUInt16BE(newTempo, eo + 2)
+        if (newBpm != null) buf.writeUInt16BE(tempo, eo + 2)
 
-        // Recalculate beat position from first beat + index × beatMs
-        const newTimeMs = Math.round(firstBeatMs + i * beatMs)
-        buf.writeUInt32BE(newTimeMs, eo + 4)
-
-        // Beat number cycles 1-4, keep original pattern
+        // Recalculate positions: anchor (first beat + offset) + index × beatMs
+        if (newBpm != null || gridOffsetMs) {
+          const t = Math.max(0, Math.round(anchor + i * beatMs))
+          buf.writeUInt32BE(t, eo + 4)
+        }
       }
       found = true
       break
@@ -101,7 +105,10 @@ export function updateAnlzBpm(anlzRelPath, newBpm) {
 
   if (found) {
     fs.writeFileSync(full, buf)
-    console.log(`[anlz] Updated BPM to ${newBpm} in ${anlzRelPath}`)
+    const parts = []
+    if (newBpm != null) parts.push(`BPM=${newBpm}`)
+    if (gridOffsetMs) parts.push(`offset=${gridOffsetMs}ms`)
+    console.log(`[anlz] Updated ${parts.join(', ')} in ${anlzRelPath}`)
   }
   return found
 }
@@ -112,11 +119,17 @@ export function updateAnlzBpm(anlzRelPath, newBpm) {
  * Load exact beat positions for all tracks using their AnalysisDataPath.
  * Returns a Map<trackId, beats[]>.
  */
-export function loadBeatsForTracks(tracks) {
+export async function loadBeatsForTracks(tracks, onProgress) {
   const result = new Map()
-  for (const track of tracks) {
-    const beats = track._anlzPath ? readAnlzBeats(track._anlzPath) : null
-    if (beats && beats.length > 0) result.set(track.id, beats)
+  const CHUNK = 100
+  for (let start = 0; start < tracks.length; start += CHUNK) {
+    const end = Math.min(start + CHUNK, tracks.length)
+    for (let i = start; i < end; i++) {
+      const beats = tracks[i]._anlzPath ? readAnlzBeats(tracks[i]._anlzPath) : null
+      if (beats && beats.length > 0) result.set(tracks[i].id, beats)
+    }
+    if (onProgress) onProgress({ phase: 'beats', progress: end / tracks.length })
+    await new Promise(r => setImmediate(r))
   }
   console.log(`[anlz] beats loaded for ${result.size}/${tracks.length} tracks`)
   return result

@@ -1,8 +1,10 @@
 // src/renderer/components/RightPanel/WaveformPanel/WaveformPanel.jsx
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react'
 import { useAppStore } from '../../../store/appStore.js'
+import { generateCueWrites } from '../../../utils/cueCalc.js'
 import WaveformCanvas from './WaveformCanvas.jsx'
 import BeatgridControls from './BeatgridControls.jsx'
+import CueEditor from './CueEditor.jsx'
 
 const NUM_BARS = 65536
 
@@ -25,9 +27,12 @@ function extractPeaks(audioBuffer) {
 }
 
 export default function WaveformPanel() {
-  const focusedId = useAppStore(s => s.focusedTrackId)
-  const tracks    = useAppStore(s => s.tracks)
-  const adjs      = useAppStore(s => s.trackAdjustments)
+  const focusedId     = useAppStore(s => s.focusedTrackId)
+  const tracks        = useAppStore(s => s.tracks)
+  const adjs          = useAppStore(s => s.trackAdjustments)
+  const cueOverrides  = useAppStore(s => s.cueOverrides)
+  const selectedIds   = useAppStore(s => s.selectedTrackIds)
+  const ruleSets      = useAppStore(s => s.ruleSets)
 
   const [zoom, setZoom]           = useState(1)
   const [scrollMs, setScrollMs]   = useState(0)
@@ -153,6 +158,17 @@ export default function WaveformPanel() {
     if (isPlaying) startPlayback(ms)
   }, [isPlaying, startPlayback])
 
+  // Compute generated cues for the focused track (preview on waveform)
+  const generatedCues = useMemo(() => {
+    if (!track || !selectedIds.has(track.id) || ruleSets.length === 0) return []
+    return generateCueWrites({
+      tracks: [track],
+      selectedTrackIds: new Set([track.id]),
+      ruleSets,
+      trackAdjustments: adjs,
+    })
+  }, [track, selectedIds, ruleSets, adjs])
+
   const handleZoom = (newZoom, newScroll) => {
     setZoom(Math.max(1, Math.min(128, newZoom)))
     setScrollMs(Math.max(0, newScroll))
@@ -176,6 +192,8 @@ export default function WaveformPanel() {
           onScroll={setScrollMs}
           onZoom={handleZoom}
           onSeek={handleSeek}
+          cueOverrides={track ? (cueOverrides[track.id] ?? null) : null}
+          generatedCues={generatedCues}
         />
       ) : (
         <div style={{ height: 110, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
@@ -195,6 +213,7 @@ export default function WaveformPanel() {
         onPlayPause={handlePlayPause}
         hasAudio={!!audioBufferRef.current}
       />
+      <CueEditor track={track} playheadMs={playheadMs} />
     </div>
   )
 }

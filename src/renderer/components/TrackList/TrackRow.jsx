@@ -1,10 +1,10 @@
 // src/renderer/components/TrackList/TrackRow.jsx
 import { formatBpm, formatDuration, HOTCUE_COLOURS } from '../../utils/colours.js'
 
-export default function TrackRow({ track, selected, focused, onSelect, onFocus }) {
+export default function TrackRow({ track, selected, focused, onSelect, onFocus, onRowClick, bpmOverride }) {
   return (
     <div
-      onClick={() => onFocus(track.id)}
+      onClick={e => onRowClick(track.id, e)}
       style={{
         display: 'flex', alignItems: 'center', gap: 10, padding: '0 12px',
         height: 34, cursor: 'pointer', userSelect: 'none',
@@ -17,7 +17,7 @@ export default function TrackRow({ track, selected, focused, onSelect, onFocus }
       <input
         type="checkbox"
         checked={selected}
-        onChange={() => onSelect(track.id)}
+        onChange={e => { e.stopPropagation(); onSelect(track.id) }}
         onClick={e => e.stopPropagation()}
       />
       <span style={{
@@ -36,7 +36,7 @@ export default function TrackRow({ track, selected, focused, onSelect, onFocus }
         flex: '0 0 46px', fontSize: 11, color: 'var(--text-secondary)',
         fontVariantNumeric: 'tabular-nums',
       }}>
-        {formatBpm(track.bpm)}
+        {formatBpm(bpmOverride ?? track.bpm)}
       </span>
       <span style={{ flex: '0 0 34px', fontSize: 11, color: 'var(--text-secondary)' }}>
         {track.key}
@@ -53,8 +53,8 @@ export default function TrackRow({ track, selected, focused, onSelect, onFocus }
             key={hc.slot}
             title={`Hotcue ${hc.slot}`}
             style={{
-              width: 3, height: 16, borderRadius: 2,
-              background: hc.colour ?? HOTCUE_COLOURS[hc.slot],
+              width: 5, height: 16, borderRadius: 2,
+              background: hc.colour ?? '#ff375f',
             }}
           />
         ))}

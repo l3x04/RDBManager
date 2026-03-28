@@ -1,6 +1,5 @@
 // src/renderer/components/RightPanel/WaveformPanel/WaveformCanvas.jsx
 import { useEffect, useRef, useState } from 'react'
-import { HOTCUE_COLOURS } from '../../../utils/colours.js'
 
 function resolvePx(slice, x, W) {
   if (!slice.length) return null
@@ -37,6 +36,8 @@ export default function WaveformCanvas({
   zoom = 1, scrollMs = 0,
   playheadMs = null,
   onScroll, onZoom, onSeek,
+  cueOverrides = null,
+  generatedCues = [],
 }) {
   const canvasRef  = useRef(null)
   const dragRef    = useRef(null)
@@ -148,16 +149,43 @@ export default function WaveformCanvas({
       ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke()
       ctx.fillStyle = colour
       ctx.beginPath()
-      ctx.moveTo(x, 0); ctx.lineTo(x + 14, 0); ctx.lineTo(x + 14, 12)
-      ctx.lineTo(x + 8, 16); ctx.lineTo(x, 16); ctx.closePath(); ctx.fill()
+      ctx.moveTo(x, 0); ctx.lineTo(x + 20, 0); ctx.lineTo(x + 20, 15)
+      ctx.lineTo(x + 11, 19); ctx.lineTo(x, 19); ctx.closePath(); ctx.fill()
       ctx.fillStyle = '#fff'
-      ctx.font = 'bold 9px Inter, system-ui, sans-serif'
-      ctx.fillText(label, x + 3, 11)
+      ctx.font = 'bold 11px system-ui, -apple-system, Arial, sans-serif'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(label, x + 5, 9)
+      ctx.textBaseline = 'alphabetic'
     }
-    for (const hc of (track.hotcues ?? []))
-      drawMarker(hc.positionMs, hc.slot, hc.colour ?? HOTCUE_COLOURS[hc.slot])
-    for (const mc of (track.memoryCues ?? []))
+    const activeHotcues = cueOverrides ? (cueOverrides.hotcues ?? []) : (track.hotcues ?? [])
+    const activeMemoryCues = cueOverrides ? (cueOverrides.memoryCues ?? []) : (track.memoryCues ?? [])
+    for (const hc of activeHotcues)
+      drawMarker(hc.positionMs, hc.slot, hc.colour ?? '#ff375f')
+    for (const mc of activeMemoryCues)
       drawMarker(mc.positionMs, '●', mc.colour ?? '#ffd60a')
+
+    // ── Generated cue preview (dashed markers) ────────────────────────────
+    for (const gc of generatedCues) {
+      if (gc.positionMs < startMs || gc.positionMs > visEnd) continue
+      const gx = (gc.positionMs - startMs) / msPerPx
+      ctx.setLineDash([3, 3])
+      ctx.strokeStyle = gc.colour ?? '#ff453a'
+      ctx.lineWidth = 1.5
+      ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, H); ctx.stroke()
+      ctx.setLineDash([])
+      // Dashed flag
+      ctx.fillStyle = gc.colour ?? '#ff453a'
+      ctx.globalAlpha = 0.6
+      ctx.beginPath()
+      ctx.moveTo(gx, 0); ctx.lineTo(gx + 20, 0); ctx.lineTo(gx + 20, 15)
+      ctx.lineTo(gx + 11, 19); ctx.lineTo(gx, 19); ctx.closePath(); ctx.fill()
+      ctx.globalAlpha = 1
+      ctx.fillStyle = '#fff'
+      ctx.font = 'bold 11px system-ui, -apple-system, Arial, sans-serif'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(gc.slot ?? '?', gx + 5, 9)
+      ctx.textBaseline = 'alphabetic'
+    }
 
     // ── Playhead ──────────────────────────────────────────────────────────
     if (playheadMs != null && playheadMs >= startMs && playheadMs <= visEnd) {
@@ -167,7 +195,7 @@ export default function WaveformCanvas({
       ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke()
     }
 
-  }, [track, peaks, audioDurationMs, loading, gridOffsetMs, bpmOverride, startMs, endMs, playheadMs, canvasW, track?.beats])
+  }, [track, peaks, audioDurationMs, loading, gridOffsetMs, bpmOverride, startMs, endMs, playheadMs, canvasW, track?.beats, cueOverrides, generatedCues])
 
   // ── Interaction ───────────────────────────────────────────────────────────
   useEffect(() => {

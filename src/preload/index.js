@@ -14,6 +14,11 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('db:loaded', handler)
     return () => ipcRenderer.removeListener('db:loaded', handler)
   },
+  onDbProgress: (cb) => {
+    const handler = (_e, data) => cb(data)
+    ipcRenderer.on('db:progress', handler)
+    return () => ipcRenderer.removeListener('db:progress', handler)
+  },
   onDbError: (cb) => {
     const handler = (_e, data) => cb(data)
     ipcRenderer.on('db:error', handler)

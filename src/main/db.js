@@ -3,8 +3,8 @@ import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
-import { loadBeatsForTracks, updateAnlzBpm } from './anlz.js'
-import { applyWritesToDb, applyBpmOverrides } from './dbWrite.js'
+import { loadBeatsForTracks, updateAnlzBeats } from './anlz.js'
+import { applyWritesToDb, applyBpmOverrides, applyCueOverrides } from './dbWrite.js'
 
 // Rekordbox 6.x confirmed table names
 const TRACK_TABLE = 'djmdContent'
@@ -22,27 +22,71 @@ const DB_KDF_ITER = 256000
 export const KIND_TO_SLOT = { 1:'A', 2:'B', 3:'C', 5:'D', 6:'E', 7:'F', 8:'G', 9:'H' }
 export const SLOT_TO_KIND = { A:1, B:2, C:3, D:5, E:6, F:7, G:8, H:9 }
 
-// Map between app hex colours and rekordbox ColorTableIndex (0–7: Pink, Red, Orange, Yellow, Green, Aqua, Blue, Purple)
-const COLOUR_TO_INDEX = {
-  '#ff375f': 0, '#ff453a': 1, '#ff9f0a': 2, '#ffd60a': 3,
-  '#30d158': 4, '#64d2ff': 5, '#0a84ff': 6, '#bf5af2': 7,
+// rekordbox ColorTableIndex → display colour
+// Confirmed: 2=Blue, 5=Green(NULL default). Others mapped from djmdColor + user feedback.
+const INDEX_TO_COLOUR = {
+  1:  '#ff375f', // Pink
+  2:  '#0a84ff', // Blue (confirmed)
+  3:  '#ff9f0a', // Orange
+  4:  '#ffd60a', // Yellow
+  5:  '#30d158', // Green (confirmed)
+  6:  '#64d2ff', // Aqua
+  7:  '#ff453a', // Red
+  8:  '#bf5af2', // Purple
 }
-const INDEX_TO_COLOUR = Object.fromEntries(
-  Object.entries(COLOUR_TO_INDEX).map(([hex, idx]) => [idx, hex])
-)
+
+// Default rekordbox 6 hotcue colour (green for all slots when no custom colour set)
+const DEFAULT_HOTCUE_COLOUR = '#30d158'
 
 /**
  * Decrypt the local rekordbox master.db (SQLCipher 4).
  * Returns the path to a temporary plain-SQLite file.
  */
-export function decryptLocalDb() {
+export async function decryptLocalDb(onProgress) {
   const localDbPath = path.join(os.homedir(), 'AppData', 'Roaming', 'Pioneer', 'rekordbox', 'master.db')
   if (!fs.existsSync(localDbPath))
     throw new Error('rekordbox database not found. Is rekordbox installed?')
   const enc = fs.readFileSync(localDbPath)
-  const dec = decryptSqlCipher4(enc)
+
+  // Async PBKDF2 so the event loop can render the loading screen
+  const keySalt = enc.slice(0, 16)
+  if (onProgress) onProgress({ phase: 'decrypt', progress: 0 })
+  const encKey = await new Promise((resolve, reject) =>
+    crypto.pbkdf2(DB_PASSPHRASE, keySalt, DB_KDF_ITER, DB_KEY_SIZE, 'sha512', (err, key) =>
+      err ? reject(err) : resolve(key)
+    )
+  )
+  if (onProgress) onProgress({ phase: 'decrypt', progress: 0.3 })
+
+  // Chunked page decryption with event loop yields
+  const pageCount = Math.floor(enc.length / DB_PAGE_SIZE)
+  const outPages = []
+  const CHUNK = 200
+  for (let start = 0; start < pageCount; start += CHUNK) {
+    const end = Math.min(start + CHUNK, pageCount)
+    for (let i = start; i < end; i++) {
+      const page = enc.slice(i * DB_PAGE_SIZE, (i + 1) * DB_PAGE_SIZE)
+      const iv = page.slice(DB_PAGE_SIZE - DB_RESERVE_SIZE, DB_PAGE_SIZE - DB_RESERVE_SIZE + DB_IV_SIZE)
+      const ct = page.slice(i === 0 ? 16 : 0, DB_PAGE_SIZE - DB_RESERVE_SIZE)
+      const decipher = crypto.createDecipheriv('aes-256-cbc', encKey, iv)
+      decipher.setAutoPadding(false)
+      const pt = Buffer.concat([decipher.update(ct), decipher.final()])
+      const outPage = Buffer.alloc(DB_PAGE_SIZE, 0)
+      if (i === 0) {
+        Buffer.from('SQLite format 3\x00').copy(outPage, 0)
+        pt.copy(outPage, 16)
+        outPage[20] = 0
+      } else {
+        pt.copy(outPage, 0)
+      }
+      outPages.push(outPage)
+    }
+    if (onProgress) onProgress({ phase: 'decrypt', progress: 0.3 + 0.7 * (end / pageCount) })
+    await new Promise(r => setImmediate(r))
+  }
+
   const tmpPath = path.join(os.tmpdir(), `rb_local_${Date.now()}.db`)
-  fs.writeFileSync(tmpPath, dec)
+  fs.writeFileSync(tmpPath, Buffer.concat(outPages))
   return tmpPath
 }
 
@@ -126,11 +170,14 @@ const RB_MASTER_DB = path.join(os.homedir(), 'AppData', 'Roaming', 'Pioneer', 'r
  * Apply cue writes directly to the rekordbox master.db.
  * Creates a .bak backup before overwriting.
  */
-export function writeToRekordbox(decryptedDbPath, writes, trackAdjustments, anlzPathMap) {
+export function writeToRekordbox(decryptedDbPath, writes, trackAdjustments, anlzPathMap, cueOverrides) {
   // 1. Apply writes to the decrypted DB
   console.log('[save] Opening decrypted DB for writing:', decryptedDbPath)
   const db = new Database(decryptedDbPath)
   try {
+    // Force rollback journal mode so all changes go to the main .db file
+    db.pragma('journal_mode = DELETE')
+
     if (writes.length > 0) {
       applyWritesToDb(db, writes)
       console.log('[save] Applied', writes.length, 'cue writes')
@@ -140,21 +187,40 @@ export function writeToRekordbox(decryptedDbPath, writes, trackAdjustments, anlz
       const bpmCount = Object.values(trackAdjustments).filter(a => a.bpmOverride != null).length
       console.log('[save] Applied', bpmCount, 'BPM overrides')
     }
-  } finally { db.close() }
+    if (cueOverrides && Object.keys(cueOverrides).length > 0) {
+      applyCueOverrides(db, cueOverrides)
+      console.log('[save] Applied cue overrides for', Object.keys(cueOverrides).length, 'tracks')
+    }
+  } finally {
+    // Ensure WAL is merged before we read raw bytes
+    try { db.pragma('wal_checkpoint(TRUNCATE)') } catch {}
+    db.close()
+    // Clean up any leftover WAL/SHM on the temp file
+    try { fs.unlinkSync(decryptedDbPath + '-wal') } catch {}
+    try { fs.unlinkSync(decryptedDbPath + '-shm') } catch {}
+  }
 
-  // 1b. Update ANLZ files for BPM changes (jogwheel/deck tempo)
+  // 1b. Update ANLZ files for BPM / grid offset changes
   if (trackAdjustments && anlzPathMap) {
     for (const [trackId, adj] of Object.entries(trackAdjustments)) {
-      if (adj.bpmOverride != null && adj.bpmOverride > 0) {
+      const hasBpm = adj.bpmOverride != null && adj.bpmOverride > 0
+      const hasOffset = adj.gridOffsetMs != null && adj.gridOffsetMs !== 0
+      if (hasBpm || hasOffset) {
         const anlzPath = anlzPathMap.get(trackId) ?? anlzPathMap.get(Number(trackId))
-        if (anlzPath) updateAnlzBpm(anlzPath, adj.bpmOverride)
+        if (anlzPath) updateAnlzBeats(anlzPath, hasBpm ? adj.bpmOverride : null, adj.gridOffsetMs ?? 0)
       }
     }
   }
 
-  // 2. Read modified plain DB
+  // 2. Read modified plain DB and verify integrity
   const plainData = fs.readFileSync(decryptedDbPath)
   console.log('[save] Plain DB size:', plainData.length, 'bytes')
+  // Quick integrity check - re-open and verify SQLite header
+  const verifyDb = new Database(decryptedDbPath, { readonly: true })
+  try {
+    const ic = verifyDb.pragma('integrity_check')
+    console.log('[save] Integrity check:', ic[0]?.integrity_check ?? 'unknown')
+  } finally { verifyDb.close() }
 
   // 3. Read original encrypted DB to get the salt
   console.log('[save] Reading original:', RB_MASTER_DB)
@@ -221,30 +287,35 @@ export function loadCues(db, trackId) {
   const hotcues = []
   const memoryCues = []
   for (const row of rows) {
-    const colour = INDEX_TO_COLOUR[row.ColorTableIndex] ?? null
+    const slot = KIND_TO_SLOT[row.Kind]
+    const dbColour = INDEX_TO_COLOUR[row.ColorTableIndex] ?? null
     if (row.Kind === 0) {
-      memoryCues.push({ positionMs: row.InMsec, colour: colour ?? '#ffd60a' })
-    } else if (KIND_TO_SLOT[row.Kind]) {
-      hotcues.push({ slot: KIND_TO_SLOT[row.Kind], positionMs: row.InMsec, colour })
+      memoryCues.push({ positionMs: row.InMsec, colour: dbColour ?? '#ffd60a' })
+    } else if (slot) {
+      hotcues.push({ slot, positionMs: row.InMsec, colour: dbColour ?? DEFAULT_HOTCUE_COLOUR })
     }
   }
   return { hotcues, memoryCues }
 }
 
-export function loadAllTracksWithCues(db) {
+export async function loadAllTracksWithCues(db, onProgress) {
+  if (onProgress) onProgress({ phase: 'tracks', progress: 0 })
   const tracks = loadTracks(db)
+  if (onProgress) onProgress({ phase: 'tracks', progress: 0.5 })
+
   for (const track of tracks) {
     const { hotcues, memoryCues } = loadCues(db, track.id)
     track.hotcues    = hotcues
     track.memoryCues = memoryCues
   }
-  // Load exact beat positions from ANLZ files (paths come from the same DB)
-  const beatsMap = loadBeatsForTracks(tracks)
-  // Build ANLZ path map before clearing _anlzPath (needed for ANLZ writes)
+  if (onProgress) onProgress({ phase: 'tracks', progress: 1 })
+
+  // Load exact beat positions from ANLZ files with progress
+  const beatsMap = await loadBeatsForTracks(tracks, onProgress)
   const anlzPaths = new Map(tracks.map(t => [t.id, t._anlzPath]).filter(([, p]) => p))
   for (const track of tracks) {
     track.beats    = beatsMap.get(track.id) ?? null
-    track._anlzPath = undefined // don't send internal path to renderer
+    track._anlzPath = undefined
   }
   return { tracks, anlzPaths }
 }

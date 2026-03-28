@@ -47,7 +47,7 @@ function createWindow() {
   }
 }
 
-function loadLocalDb() {
+async function loadLocalDb(onProgress) {
   if (currentDb) {
     try { currentDb.close() } catch {}
     currentDb = null
@@ -57,10 +57,10 @@ function loadLocalDb() {
     tempDbPath = null
   }
 
-  const dbPath = decryptLocalDb()  // throws if not found or decryption fails
+  const dbPath = await decryptLocalDb(onProgress)
   tempDbPath = dbPath
   currentDb = openDb(dbPath)
-  const result = loadAllTracksWithCues(currentDb)
+  const result = await loadAllTracksWithCues(currentDb, onProgress)
   tracks = result.tracks
   anlzPaths = result.anlzPaths
   currentDecryptedDbPath = dbPath
@@ -70,7 +70,7 @@ function loadLocalDb() {
 function registerIpc() {
   ipcMain.handle('db:loadLocal', async () => {
     try {
-      const count = loadLocalDb()
+      const count = await loadLocalDb()
       return { ok: true, count }
     } catch (err) {
       const msg = err.message.includes('not found')
@@ -82,7 +82,7 @@ function registerIpc() {
 
   ipcMain.handle('db:reload', async () => {
     try {
-      const count = loadLocalDb()
+      const count = await loadLocalDb()
       return { ok: true, count }
     } catch (err) {
       return { ok: false, error: err.message }
@@ -129,7 +129,11 @@ function registerIpc() {
     }
   })
 
-  ipcMain.handle('db:saveToRb', async (_e, { selectedTrackIds, ruleSets, trackAdjustments }) => {
+  ipcMain.handle('db:saveToRb', async (_e, { selectedTrackIds, ruleSets, trackAdjustments, cueOverrides }) => {
+    console.log('[save] cueOverrides keys:', Object.keys(cueOverrides || {}))
+    for (const [id, c] of Object.entries(cueOverrides || {})) {
+      console.log(`[save]   track ${id}: ${c.hotcues?.length ?? 0} hotcues, ${c.memoryCues?.length ?? 0} memory`)
+    }
     try {
       const writes = (ruleSets && ruleSets.length > 0 && selectedTrackIds && selectedTrackIds.length > 0)
         ? generateCueWrites({
@@ -143,19 +147,21 @@ function registerIpc() {
       // Close readonly DB so the write can proceed without lock conflicts
       if (currentDb) { try { currentDb.close() } catch {} currentDb = null }
 
-      writeToRekordbox(currentDecryptedDbPath, writes, trackAdjustments, anlzPaths)
+      writeToRekordbox(currentDecryptedDbPath, writes, trackAdjustments, anlzPaths, cueOverrides)
 
       // Reopen and reload tracks with updated data
       currentDb = openDb(currentDecryptedDbPath)
-      const result = loadAllTracksWithCues(currentDb)
+      const result = await loadAllTracksWithCues(currentDb)
       tracks = result.tracks
       anlzPaths = result.anlzPaths
 
       const bpmChanges = Object.values(trackAdjustments || {}).filter(a => a.bpmOverride != null).length
+      const cueOverrideCount = Object.keys(cueOverrides || {}).length
       return {
         ok: true,
         cuesWritten: writes.length,
         bpmChanges,
+        cueOverrideCount,
       }
     } catch (err) {
       return { ok: false, error: err.message }
@@ -184,18 +190,17 @@ app.whenReady().then(async () => {
   registerIpc()
   createWindow()
 
-  // Auto-load local rekordbox database
-  try {
-    loadLocalDb()
-    mainWindow?.webContents.once('did-finish-load', () => {
+  // Wait for renderer to be ready, then start loading with progress
+  mainWindow?.webContents.once('did-finish-load', async () => {
+    const sendProgress = (data) => mainWindow?.webContents.send('db:progress', data)
+    try {
+      await loadLocalDb(sendProgress)
       mainWindow?.webContents.send('db:loaded', { trackCount: tracks.length })
-    })
-  } catch (err) {
-    console.error('Auto-load failed:', err.message)
-    mainWindow?.webContents.once('did-finish-load', () => {
+    } catch (err) {
+      console.error('Auto-load failed:', err.message)
       mainWindow?.webContents.send('db:error', { error: err.message })
-    })
-  }
+    }
+  })
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

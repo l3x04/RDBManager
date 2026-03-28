@@ -68,6 +68,30 @@ export const useAppStore = create((set, get) => ({
     }
   })),
 
+  // Cue overrides: trackId → { hotcues: [...], memoryCues: [...] }
+  cueOverrides: {},
+  setCueOverrides: (trackId, cues) => set(s => ({
+    cueOverrides: { ...s.cueOverrides, [trackId]: cues }
+  })),
+  getCuesForTrack: (trackId) => {
+    const { cueOverrides, tracks } = get()
+    if (cueOverrides[trackId]) return cueOverrides[trackId]
+    const track = tracks.find(t => t.id === trackId)
+    if (!track) return { hotcues: [], memoryCues: [] }
+    return { hotcues: track.hotcues ?? [], memoryCues: track.memoryCues ?? [] }
+  },
+  ensureCueOverrides: (trackId) => {
+    const { cueOverrides, tracks } = get()
+    if (cueOverrides[trackId]) return cueOverrides[trackId]
+    const track = tracks.find(t => t.id === trackId)
+    const copy = {
+      hotcues: (track?.hotcues ?? []).map(h => ({ ...h })),
+      memoryCues: (track?.memoryCues ?? []).map(m => ({ ...m })),
+    }
+    set(s => ({ cueOverrides: { ...s.cueOverrides, [trackId]: copy } }))
+    return copy
+  },
+
   // Derived: filtered track list
   filteredTracks: () => {
     const { tracks, searchQuery } = get()
@@ -83,6 +107,7 @@ export const useAppStore = create((set, get) => ({
     ruleSets: session.ruleSets ?? [],
     selectedTrackIds: new Set(session.selectedTrackIds ?? []),
     trackAdjustments: session.trackAdjustments ?? {},
+    cueOverrides: session.cueOverrides ?? {},
   }),
 
   // Set tracks from IPC
