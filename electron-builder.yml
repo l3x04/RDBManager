@@ -1,0 +1,21 @@
+appId: com.lex.cue-editor
+productName: Lex Cue Editor
+directories:
+  buildResources: build
+  output: dist
+files:
+  - out/**/*
+  - node_modules/**/*
+  - "!node_modules/**/*.{md,ts,map}"
+  - "!node_modules/**/test/**"
+  - "!node_modules/**/tests/**"
+  - "!node_modules/**/__tests__/**"
+  - "!node_modules/**/docs/**"
+asarUnpack:
+  - node_modules/better-sqlite3/**
+forceCodeSigning: false
+win:
+  target:
+    - target: dir
+      arch: x64
+  signAndEditExecutable: false
