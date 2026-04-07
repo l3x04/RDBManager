@@ -38,6 +38,10 @@ html, body, #root { height: 100%; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22); }
 
 /* Fix select dropdowns in dark theme */
+select {
+  background: #1c1c1e;
+  color: #f5f5f7;
+}
 select option {
   background: #1c1c1e;
   color: #f5f5f7;

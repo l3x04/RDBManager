@@ -81,7 +81,7 @@ export async function decryptLocalDb(onProgress) {
       if (i === 0) {
         Buffer.from('SQLite format 3\x00').copy(outPage, 0)
         pt.copy(outPage, 16)
-        outPage[20] = 0
+        // Keep reserve byte at 80 — B-tree was built with 4016 usable bytes per page
       } else {
         pt.copy(outPage, 0)
       }
@@ -112,7 +112,7 @@ function decryptSqlCipher4(encData) {
     if (i === 0) {
       Buffer.from('SQLite format 3\x00').copy(outPage, 0)
       pt.copy(outPage, 16)
-      outPage[20] = 0 // clear reserved-space field (SQLCipher sets 80, standard SQLite needs 0)
+      // Keep reserve byte at 80 — B-tree was built with 4016 usable bytes per page
     } else {
       pt.copy(outPage, 0)
     }
@@ -176,34 +176,20 @@ const RB_MASTER_DB = path.join(os.homedir(), 'AppData', 'Roaming', 'Pioneer', 'r
  * Apply cue writes directly to the rekordbox master.db.
  * Creates a .bak backup before overwriting.
  */
-export function writeToRekordbox(decryptedDbPath, writes, trackAdjustments, anlzPathMap, cueOverrides) {
-  // 1. Apply writes to the decrypted DB
-  console.log('[save] Opening decrypted DB for writing:', decryptedDbPath)
-  const db = new Database(decryptedDbPath)
-  try {
-    // Force rollback journal mode so all changes go to the main .db file
-    db.pragma('journal_mode = DELETE')
-
-    if (writes.length > 0) {
-      applyWritesToDb(db, writes)
-      console.log('[save] Applied', writes.length, 'cue writes')
-    }
-    if (trackAdjustments) {
-      applyBpmOverrides(db, trackAdjustments)
-      const bpmCount = Object.values(trackAdjustments).filter(a => a.bpmOverride != null).length
-      console.log('[save] Applied', bpmCount, 'BPM overrides')
-    }
-    if (cueOverrides && Object.keys(cueOverrides).length > 0) {
-      applyCueOverrides(db, cueOverrides)
-      console.log('[save] Applied cue overrides for', Object.keys(cueOverrides).length, 'tracks')
-    }
-  } finally {
-    // Ensure WAL is merged before we read raw bytes
-    try { db.pragma('wal_checkpoint(TRUNCATE)') } catch {}
-    db.close()
-    // Clean up any leftover WAL/SHM on the temp file
-    try { fs.unlinkSync(decryptedDbPath + '-wal') } catch {}
-    try { fs.unlinkSync(decryptedDbPath + '-shm') } catch {}
+export function writeToRekordbox(db, decryptedDbPath, writes, trackAdjustments, anlzPathMap, cueOverrides) {
+  // 1. Apply writes to the existing read-write connection
+  if (writes.length > 0) {
+    applyWritesToDb(db, writes)
+    console.log('[save] Applied', writes.length, 'cue writes')
+  }
+  if (trackAdjustments) {
+    applyBpmOverrides(db, trackAdjustments)
+    const bpmCount = Object.values(trackAdjustments).filter(a => a.bpmOverride != null).length
+    console.log('[save] Applied', bpmCount, 'BPM overrides')
+  }
+  if (cueOverrides && Object.keys(cueOverrides).length > 0) {
+    applyCueOverrides(db, cueOverrides)
+    console.log('[save] Applied cue overrides for', Object.keys(cueOverrides).length, 'tracks')
   }
 
   // 1b. Update ANLZ files for BPM / grid offset changes
@@ -218,15 +204,9 @@ export function writeToRekordbox(decryptedDbPath, writes, trackAdjustments, anlz
     }
   }
 
-  // 2. Read modified plain DB and verify integrity
+  // 2. Read modified plain DB
   const plainData = fs.readFileSync(decryptedDbPath)
   console.log('[save] Plain DB size:', plainData.length, 'bytes')
-  // Quick integrity check - re-open and verify SQLite header
-  const verifyDb = new Database(decryptedDbPath, { readonly: true })
-  try {
-    const ic = verifyDb.pragma('integrity_check')
-    console.log('[save] Integrity check:', ic[0]?.integrity_check ?? 'unknown')
-  } finally { verifyDb.close() }
 
   // 3. Read original encrypted DB to get the salt
   console.log('[save] Reading original:', RB_MASTER_DB)
@@ -253,8 +233,23 @@ export function writeToRekordbox(decryptedDbPath, writes, trackAdjustments, anlz
   return bakPath
 }
 
-export function openDb(filePath) {
-  return new Database(filePath, { readonly: true })
+/** Re-encrypt a decrypted temp DB back to rekordbox master.db */
+export function reencryptToMaster(decryptedDbPath) {
+  const plainData = fs.readFileSync(decryptedDbPath)
+  const origEnc = fs.readFileSync(RB_MASTER_DB)
+  const salt = origEnc.slice(0, 16)
+  const encData = encryptSqlCipher4(plainData, salt)
+  fs.copyFileSync(RB_MASTER_DB, RB_MASTER_DB + '.bak')
+  fs.writeFileSync(RB_MASTER_DB, encData)
+  try { fs.unlinkSync(RB_MASTER_DB + '-wal') } catch {}
+  try { fs.unlinkSync(RB_MASTER_DB + '-shm') } catch {}
+  console.log('[save] Re-encrypted', encData.length, 'bytes to', RB_MASTER_DB)
+}
+
+export function openDb(filePath, readonly = true) {
+  const db = new Database(filePath, { readonly })
+  if (!readonly) db.pragma('journal_mode = DELETE')
+  return db
 }
 
 export function inspectSchema(db) {
@@ -290,9 +285,9 @@ export function loadTracks(db) {
 
 export function loadCues(db, trackId) {
   const rows = db.prepare(
-    `SELECT Kind, InMsec, ColorTableIndex FROM ${CUE_TABLE} WHERE ContentID = ? AND Kind != 4`
+    `SELECT Kind, InMsec, ColorTableIndex FROM ${CUE_TABLE} WHERE ContentID = ? AND Kind != 4 ORDER BY CAST(ID AS INTEGER) ASC`
   ).all(trackId)
-  const hotcues = []
+  const hotcueMap = new Map() // deduplicate by slot: last entry wins
   const memoryCues = []
   for (const row of rows) {
     const slot = KIND_TO_SLOT[row.Kind]
@@ -300,10 +295,10 @@ export function loadCues(db, trackId) {
     if (row.Kind === 0) {
       memoryCues.push({ positionMs: row.InMsec, colour: dbColour ?? '#ffd60a' })
     } else if (slot) {
-      hotcues.push({ slot, positionMs: row.InMsec, colour: dbColour ?? DEFAULT_HOTCUE_COLOUR })
+      hotcueMap.set(slot, { slot, positionMs: row.InMsec, colour: dbColour ?? DEFAULT_HOTCUE_COLOUR })
     }
   }
-  return { hotcues, memoryCues }
+  return { hotcues: [...hotcueMap.values()], memoryCues }
 }
 
 export async function loadAllTracksWithCues(db, onProgress) {

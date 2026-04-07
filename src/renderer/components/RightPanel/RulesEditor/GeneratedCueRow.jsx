@@ -40,7 +40,11 @@ export default function GeneratedCueRow({ cue, ruleSetId, onUpdate, onRemove }) 
       )}
       <input value={cue.label} onChange={e => field('label', e.target.value)} placeholder="Label"
         style={{ flex: 1, background: 'transparent', border: 'none', fontSize: 11, color: 'var(--text-secondary)', outline: 'none' }} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 3, background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border)', borderRadius: 5, padding: '2px 4px' }}>
+      <div
+        onWheel={e => { e.preventDefault(); field('barOffset', (cue.barOffset ?? 0) + (e.deltaY < 0 ? 8 : -8)) }}
+        style={{ display: 'flex', alignItems: 'center', gap: 3, background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border)', borderRadius: 5, padding: '2px 4px', cursor: 'ns-resize' }}
+        title="Scroll to change (±8 bars)"
+      >
         <button onClick={() => field('barOffset', (cue.barOffset ?? 0) - 1)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: '0 2px' }}>−</button>
         <span style={{ fontSize: 11, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums', minWidth: 48, textAlign: 'center' }}>
           {cue.barOffset > 0 ? `+${cue.barOffset}` : cue.barOffset} bars

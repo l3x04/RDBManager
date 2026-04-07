@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('api', {
   generate:       (payload) => ipcRenderer.invoke('generate', payload),
   saveToRekordbox: (payload) => ipcRenderer.invoke('db:saveToRb', payload),
   readAudioFile:  (filePath) => ipcRenderer.invoke('file:readAudio', filePath),
+  bulkDeleteCues: (payload) => ipcRenderer.invoke('db:bulkDeleteCues', payload),
   onDbLoaded: (cb) => {
     const handler = (_e, data) => cb(data)
     ipcRenderer.on('db:loaded', handler)

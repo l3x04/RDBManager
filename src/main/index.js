@@ -2,7 +2,7 @@ import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import fs from 'fs'
 import path from 'path'
-import { openDb, loadAllTracksWithCues, decryptLocalDb, writeToRekordbox } from './db.js'
+import { openDb, loadAllTracksWithCues, decryptLocalDb, writeToRekordbox, reencryptToMaster } from './db.js'
 import { readSession, writeSession, DEFAULT_SESSION } from './session.js'
 import { generateCueWrites } from '../renderer/utils/cueCalc.js'
 
@@ -59,7 +59,7 @@ async function loadLocalDb(onProgress) {
 
   const dbPath = await decryptLocalDb(onProgress)
   tempDbPath = dbPath
-  currentDb = openDb(dbPath)
+  currentDb = openDb(dbPath, false)  // read-write so we can reuse for saves
   const result = await loadAllTracksWithCues(currentDb, onProgress)
   tracks = result.tracks
   anlzPaths = result.anlzPaths
@@ -115,7 +115,7 @@ function registerIpc() {
       })
       if (writes.length === 0) return { ok: false, error: 'No cue writes generated' }
 
-      writeToRekordbox(currentDecryptedDbPath, writes, null, null)
+      writeToRekordbox(currentDb, currentDecryptedDbPath, writes, null, null)
 
       const tracksProcessed = new Set(writes.map(w => w.trackId)).size
       return {
@@ -144,13 +144,10 @@ function registerIpc() {
           })
         : []
 
-      // Close readonly DB so the write can proceed without lock conflicts
-      if (currentDb) { try { currentDb.close() } catch {} currentDb = null }
+      // Use existing read-write connection directly
+      writeToRekordbox(currentDb, currentDecryptedDbPath, writes, trackAdjustments, anlzPaths, cueOverrides)
 
-      writeToRekordbox(currentDecryptedDbPath, writes, trackAdjustments, anlzPaths, cueOverrides)
-
-      // Reopen and reload tracks with updated data
-      currentDb = openDb(currentDecryptedDbPath)
+      // Reload tracks with updated data (same connection)
       const result = await loadAllTracksWithCues(currentDb)
       tracks = result.tracks
       anlzPaths = result.anlzPaths
@@ -164,6 +161,34 @@ function registerIpc() {
         cueOverrideCount,
       }
     } catch (err) {
+      return { ok: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('db:bulkDeleteCues', async (_e, { keepKinds }) => {
+    try {
+      const db = currentDb  // reuse existing read-write connection
+      db.pragma('journal_mode = DELETE')
+
+      const allKinds = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+      const deleteKinds = allKinds.filter(k => !keepKinds.includes(k))
+      const placeholders = deleteKinds.map(() => '?').join(',')
+
+      const before = db.prepare(`SELECT COUNT(*) as c FROM djmdCue WHERE Kind IN (${placeholders})`).get(...deleteKinds)
+      db.prepare(`DELETE FROM djmdCue WHERE Kind IN (${placeholders})`).run(...deleteKinds)
+      const after = db.prepare('SELECT COUNT(*) as c FROM djmdCue').get()
+
+      reencryptToMaster(currentDecryptedDbPath)
+
+      // Reload (same connection)
+      const result = await loadAllTracksWithCues(db)
+      tracks = result.tracks
+      anlzPaths = result.anlzPaths
+
+      console.log(`[bulk] Deleted ${before.c} cues, ${after.c} remaining`)
+      return { ok: true, deleted: before.c, remaining: after.c }
+    } catch (err) {
+      console.error('[bulk] Error:', err)
       return { ok: false, error: err.message }
     }
   })

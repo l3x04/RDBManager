@@ -41,18 +41,14 @@ export function generateCueWrites({ tracks, selectedTrackIds, ruleSets, trackAdj
       if (!baseCue) continue
 
       for (const genCue of ruleSet.generatedCues) {
-        const positionMs = calcTargetMs({
-          baseCueMs: baseCue.positionMs,
-          barOffset: genCue.barOffset,
-          bpm,
-          gridOffsetMs,
-          trackDurationMs,
-        })
+        const raw = baseCue.positionMs + genCue.barOffset * barDurationMs(bpm) + gridOffsetMs
+        // Skip cues that fall before track start or after track end
+        if (raw < 0 || raw > trackDurationMs) continue
         writes.push({
           trackId: track.id,
           type: genCue.type,
           slot: genCue.slot,
-          positionMs,
+          positionMs: raw,
           colour: genCue.colour,
         })
       }
