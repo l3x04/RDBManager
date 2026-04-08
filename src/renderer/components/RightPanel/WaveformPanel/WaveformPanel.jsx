@@ -85,8 +85,16 @@ export default function WaveformPanel() {
 
   // ── Reset on track change ─────────────────────────────────────────────────
   useEffect(() => {
-    if (sourceRef.current) { try { sourceRef.current.stop() } catch {} sourceRef.current = null }
+    if (sourceRef.current) {
+      sourceRef.current.onended = null  // prevent async setIsPlaying(false) from overriding
+      try { sourceRef.current.stop() } catch {}
+      sourceRef.current = null
+    }
+    // Cancel any running rAF so it doesn't overwrite playheadMs after reset
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
     setIsPlaying(false); setPlayheadMs(0); setZoom(1); setScrollMs(0)
+    playOffsetRef.current = 0
+    playStartRef.current = 0
   }, [track?.id])
 
   // ── Playhead rAF ──────────────────────────────────────────────────────────

@@ -38,13 +38,14 @@ const btnVariants = {
 /**
  * @param {object} props
  * @param {React.ReactNode} props.children    — modal body content
- * @param {Array<{label:string, onClick:()=>void, variant?:string}>} props.buttons
+ * @param {Array<{label:string, onClick:()=>void, variant?:string, disabled?:boolean}>} props.buttons
  * @param {number} [props.width]              — panel width override (default 420)
+ * @param {function} [props.onClose]          — called when clicking the overlay backdrop
  */
-export default function Modal({ children, buttons = [], width }) {
+export default function Modal({ children, buttons = [], width, onClose }) {
   return (
-    <div style={overlayStyle}>
-      <div style={{ ...panelStyle, ...(width ? { width } : {}) }}>
+    <div style={overlayStyle} onClick={onClose}>
+      <div style={{ ...panelStyle, ...(width ? { width } : {}) }} onClick={e => e.stopPropagation()}>
         {children}
         {buttons.length > 0 && (
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
@@ -52,7 +53,11 @@ export default function Modal({ children, buttons = [], width }) {
               <button
                 key={i}
                 onClick={btn.onClick}
-                style={btnVariants[btn.variant ?? 'primary']}
+                disabled={btn.disabled}
+                style={{
+                  ...btnVariants[btn.variant ?? 'primary'],
+                  ...(btn.disabled ? { opacity: 0.4, cursor: 'not-allowed' } : {}),
+                }}
               >
                 {btn.label}
               </button>
