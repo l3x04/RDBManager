@@ -1,6 +1,6 @@
 {
   "name": "rdbmanager",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "rekordbox database manager — cues, BPM, beatgrid, format conversion",
   "main": "./out/main/index.js",
   "author": "L£X",
