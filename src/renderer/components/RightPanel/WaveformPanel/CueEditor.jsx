@@ -114,7 +114,8 @@ export default function CueEditor({ track, playheadMs }) {
               style={{
                 background: '#1c1c1e', border: '1px solid var(--border)',
                 borderRadius: 'var(--radius-sm)', color: '#f5f5f7',
-                fontSize: 11, padding: '1px 2px', fontFamily: 'inherit', cursor: 'pointer', outline: 'none', width: 32,
+                fontSize: 12, padding: '2px 2px 2px 4px', fontFamily: 'inherit', cursor: 'pointer', outline: 'none', width: 36, fontWeight: 700,
+                WebkitAppearance: 'none', appearance: 'none', textAlign: 'center',
               }}
             >
               {SLOTS.map(s => <option key={s} value={s}>{s}</option>)}

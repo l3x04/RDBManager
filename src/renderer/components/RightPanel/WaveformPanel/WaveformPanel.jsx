@@ -4,7 +4,7 @@ import { useAppStore } from '../../../store/appStore.js'
 import { generateCueWrites } from '../../../utils/cueCalc.js'
 import WaveformCanvas from './WaveformCanvas.jsx'
 import BeatgridControls from './BeatgridControls.jsx'
-import CueEditor from './CueEditor.jsx'
+// CueEditor moved to RightPanel
 
 const NUM_BARS = 65536
 
@@ -221,7 +221,6 @@ export default function WaveformPanel() {
         onPlayPause={handlePlayPause}
         hasAudio={!!audioBufferRef.current}
       />
-      <CueEditor track={track} playheadMs={playheadMs} />
     </div>
   )
 }

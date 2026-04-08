@@ -85,7 +85,7 @@ export default function TrackList() {
         onSortChange={setSortField}
         onSortDirToggle={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
       />
-      <div ref={parentRef} style={{ flex: 1, overflowY: 'auto' }}>
+      <div ref={parentRef} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
         <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
           {virtualizer.getVirtualItems().map(item => {
             const track = tracks[item.index]

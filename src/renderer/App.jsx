@@ -18,6 +18,7 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [readyToReveal, setReadyToReveal] = useState(false)
   const [showBackupWarning, setShowBackupWarning] = useState(false)
+  const [panelWidth, setPanelWidth] = useState(420)
   const [saveModal, setSaveModal] = useState(null) // { type: 'confirm' | 'result', ... }
   const [updateAvailable, setUpdateAvailable] = useState(null) // { version, url }
   const store = useAppStore()
@@ -176,15 +177,15 @@ export default function App() {
       <TopBar onReload={handleReload} />
 
       {updateAvailable && (
-        <div style={{ background: '#1a2a1a', color: '#30d158', padding: '6px 16px', fontSize: 12, textAlign: 'center', borderBottom: '1px solid #2a4a2a', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-          <span>Update available: <b>v{updateAvailable.version}</b></span>
+        <div style={{ background: '#1a2a1a', padding: '5px 16px', fontSize: 11, borderBottom: '1px solid #2a4a2a', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+          <span style={{ color: '#30d158' }}>v{updateAvailable.version} available</span>
           <a href={updateAvailable.url} target="_blank" rel="noreferrer"
-            style={{ color: '#0a84ff', textDecoration: 'underline', cursor: 'pointer' }}
+            style={{ color: '#30d158', textDecoration: 'none', fontWeight: 600, fontSize: 11, cursor: 'pointer' }}
             onClick={(e) => { e.preventDefault(); window.api?.openExternal?.(updateAvailable.url) || window.open(updateAvailable.url) }}>
-            Download
+            Update
           </a>
           <button onClick={() => setUpdateAvailable(null)}
-            style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: 14, marginLeft: 4 }}>✕</button>
+            style={{ background: 'none', border: 'none', color: 'rgba(48,209,88,0.4)', cursor: 'pointer', fontSize: 12, padding: 0, lineHeight: 1 }}>✕</button>
         </div>
       )}
 
@@ -195,9 +196,23 @@ export default function App() {
       )}
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        <div style={{ width: 420, flexShrink: 0, borderRight: '1px solid var(--border)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ width: panelWidth, flexShrink: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <TrackList />
         </div>
+        <div
+          style={{ width: 4, cursor: 'col-resize', background: 'var(--border)', flexShrink: 0, transition: 'background 0.1s' }}
+          onMouseDown={(e) => {
+            e.preventDefault()
+            const startX = e.clientX
+            const startW = panelWidth
+            const onMove = (ev) => setPanelWidth(Math.max(250, Math.min(800, startW + ev.clientX - startX)))
+            const onUp = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp) }
+            document.addEventListener('mousemove', onMove)
+            document.addEventListener('mouseup', onUp)
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.background = 'var(--accent)'}
+          onMouseLeave={(e) => e.currentTarget.style.background = 'var(--border)'}
+        />
         <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <RightPanel />
         </div>
