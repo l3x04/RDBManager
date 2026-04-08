@@ -17,15 +17,8 @@ export default function App() {
   const [readyToReveal, setReadyToReveal] = useState(false)
   const store = useAppStore()
 
-  // On mount: restore session, subscribe to db:loaded to populate tracks
+  // On mount: subscribe to db:loaded to populate tracks (no session restore — always fresh from DB)
   useEffect(() => {
-    async function init() {
-      try {
-        const session = await window.api.getSession()
-        store.loadSession(session)
-      } catch {}
-    }
-    init()
 
     const unsubLoaded = window.api.onDbLoaded(async ({ trackCount }) => {
       const allTracks = await window.api.getTracks()
@@ -60,9 +53,9 @@ export default function App() {
     }
   }, [])
 
-  // Debounced session autosave (~1 second)
+  // Save session only on crash/close (beforeunload)
   useEffect(() => {
-    const timer = setTimeout(() => {
+    const saveOnExit = () => {
       if (!window.api) return
       window.api.saveSession({
         ruleSets: store.ruleSets,
@@ -70,8 +63,9 @@ export default function App() {
         trackAdjustments: store.trackAdjustments,
         cueOverrides: store.cueOverrides,
       })
-    }, 1000)
-    return () => clearTimeout(timer)
+    }
+    window.addEventListener('beforeunload', saveOnExit)
+    return () => window.removeEventListener('beforeunload', saveOnExit)
   }, [store.ruleSets, store.selectedTrackIds, store.trackAdjustments, store.cueOverrides])
 
   async function handleReload() {

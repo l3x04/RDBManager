@@ -7,7 +7,9 @@ export function barDurationMs(bpm) {
 export function calcTargetMs({ baseCueMs, barOffset, bpm, gridOffsetMs = 0, trackDurationMs = Infinity }) {
   const offset = barOffset * barDurationMs(bpm)
   const raw = baseCueMs + offset + gridOffsetMs
-  return Math.max(0, Math.min(raw, trackDurationMs))
+  // Return null if outside track bounds (caller should skip)
+  if (raw < 0 || raw > trackDurationMs) return null
+  return raw
 }
 
 export function buildPreflightWarnings({ selectedTrackIds, tracks, ruleSets }) {

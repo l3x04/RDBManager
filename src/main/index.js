@@ -115,14 +115,14 @@ function registerIpc() {
       })
       if (writes.length === 0) return { ok: false, error: 'No cue writes generated' }
 
-      writeToRekordbox(currentDb, currentDecryptedDbPath, writes, null, null)
-
+      // Preview only — return the writes without saving to DB
       const tracksProcessed = new Set(writes.map(w => w.trackId)).size
       return {
         ok: true,
         tracksProcessed,
         cuesWritten: writes.length,
         tracksSkipped: selectedTrackIds.length - tracksProcessed,
+        writes,
       }
     } catch (err) {
       return { ok: false, error: err.message }
