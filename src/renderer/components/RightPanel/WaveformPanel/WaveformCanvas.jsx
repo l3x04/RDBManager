@@ -161,8 +161,24 @@ export default function WaveformCanvas({
     const activeMemoryCues = cueOverrides ? (cueOverrides.memoryCues ?? []) : (track.memoryCues ?? [])
     for (const hc of activeHotcues)
       drawMarker(hc.positionMs, hc.slot, hc.colour ?? '#28e214')
-    for (const mc of activeMemoryCues)
-      drawMarker(mc.positionMs, '●', mc.colour ?? '#ffd60a')
+
+    // Memory cues: yellow downward-pointing triangles at bottom of waveform
+    for (const mc of activeMemoryCues) {
+      if (mc.positionMs < startMs || mc.positionMs > visEnd) continue
+      const x = (mc.positionMs - startMs) / msPerPx
+      const col = mc.colour ?? '#ffd60a'
+      ctx.strokeStyle = col; ctx.lineWidth = 1
+      ctx.setLineDash([2, 2])
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke()
+      ctx.setLineDash([])
+      // Downward-pointing triangle at the bottom
+      ctx.fillStyle = col
+      ctx.beginPath()
+      ctx.moveTo(x - 6, H - 10)
+      ctx.lineTo(x + 6, H - 10)
+      ctx.lineTo(x, H)
+      ctx.closePath(); ctx.fill()
+    }
 
     // ── Generated cue preview (dashed markers) ────────────────────────────
     for (const gc of generatedCues) {

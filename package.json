@@ -1,9 +1,9 @@
 {
-  "name": "lex-cue-editor",
+  "name": "rdbmanager",
   "version": "1.0.0",
-  "description": "Desktop app for automating rekordbox cue point placement",
+  "description": "rekordbox database manager — cues, BPM, beatgrid, format conversion",
   "main": "./out/main/index.js",
-  "author": "Lex",
+  "author": "L£X",
   "homepage": ".",
   "scripts": {
     "format": "prettier --write .",
@@ -28,6 +28,7 @@
     "@tanstack/react-virtual": "^3.13.23",
     "better-sqlite3": "^12.8.0",
     "better-sqlite3-multiple-ciphers": "^12.8.0",
+    "ffmpeg-static": "^5.3.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "yauzl": "^3.2.1",

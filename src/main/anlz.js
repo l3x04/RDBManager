@@ -45,7 +45,7 @@ function readAnlzBeats(anlzRelPath) {
 
 // ── ANLZ writing ────────────────────────────────────────────────────────────
 
-function resolveAnlzPath(anlzRelPath) {
+export function resolveAnlzPath(anlzRelPath) {
   const rel = anlzRelPath.replace(/^\//, '').split('/').join(path.sep)
   return path.join(RB_SHARE, rel)
 }
@@ -111,6 +111,116 @@ export function updateAnlzBeats(anlzRelPath, newBpm, gridOffsetMs) {
     console.log(`[anlz] Updated ${parts.join(', ')} in ${anlzRelPath}`)
   }
   return found
+}
+
+// ── Bar alignment fix ────────────────────────────────────────────────────────
+
+/**
+ * Fix bar alignment so the first beat becomes beat 1 (the downbeat / red bar line).
+ * Shifts ALL beatNumber values in the PQTZ section.
+ * @param {string} anlzFullPath - absolute path to the ANLZ .DAT file
+ * @returns {boolean} true if beats were changed, false if already aligned or not found
+ */
+export function fixBarAlignment(anlzFullPath) {
+  if (!fs.existsSync(anlzFullPath)) return false
+
+  const buf = Buffer.from(fs.readFileSync(anlzFullPath))
+  if (buf.length < 28 || buf.slice(0, 4).toString('ascii') !== 'PMAI') return false
+
+  const fileHeaderLen = buf.readUInt32BE(4)
+  let pos = fileHeaderLen
+
+  while (pos + 12 <= buf.length) {
+    const tag      = buf.slice(pos, pos + 4).toString('ascii')
+    const hdrLen   = buf.readUInt32BE(pos + 4)
+    const totalLen = buf.readUInt32BE(pos + 8)
+
+    if (tag === 'PQTZ' && hdrLen >= 24) {
+      const count = buf.readUInt32BE(pos + 20)
+      if (count === 0) return false
+
+      const firstEo = pos + 24
+      const firstBn = buf.readUInt16BE(firstEo)
+      if (firstBn === 1) return false   // already aligned
+
+      for (let i = 0; i < count; i++) {
+        const eo = pos + 24 + i * 8
+        if (eo + 8 > buf.length) break
+        const orig = buf.readUInt16BE(eo)
+        const shifted = ((orig - firstBn + 4) % 4) + 1
+        buf.writeUInt16BE(shifted, eo)
+      }
+
+      fs.writeFileSync(anlzFullPath, buf)
+      console.log(`[anlz] Fixed bar alignment (firstBeat was ${firstBn}) in ${anlzFullPath}`)
+      return true
+    }
+    if (totalLen < 12) break
+    pos += totalLen
+  }
+  return false
+}
+
+// ── Fix bar alignment by hotcue position ─────────────────────────────────────
+
+/**
+ * Fix bar alignment so the beat closest to a given position (ms) becomes beat 1.
+ * Shifts ALL beatNumber values in the PQTZ section.
+ * @param {string} anlzFullPath - absolute path to the ANLZ .DAT file
+ * @param {number} targetMs - the hotcue position in ms to align beat 1 to
+ * @returns {boolean} true if beats were changed, false if not found
+ */
+export function fixBarAlignmentByPosition(anlzFullPath, targetMs) {
+  if (!fs.existsSync(anlzFullPath)) return false
+
+  const buf = Buffer.from(fs.readFileSync(anlzFullPath))
+  if (buf.length < 28 || buf.slice(0, 4).toString('ascii') !== 'PMAI') return false
+
+  const fileHeaderLen = buf.readUInt32BE(4)
+  let pos = fileHeaderLen
+
+  while (pos + 12 <= buf.length) {
+    const tag      = buf.slice(pos, pos + 4).toString('ascii')
+    const hdrLen   = buf.readUInt32BE(pos + 4)
+    const totalLen = buf.readUInt32BE(pos + 8)
+
+    if (tag === 'PQTZ' && hdrLen >= 24) {
+      const count = buf.readUInt32BE(pos + 20)
+      if (count === 0) return false
+
+      // Find the closest beat to targetMs
+      let closestIdx = 0
+      let closestDist = Infinity
+      for (let i = 0; i < count; i++) {
+        const eo = pos + 24 + i * 8
+        if (eo + 8 > buf.length) break
+        const t = buf.readUInt32BE(eo + 4)
+        const dist = Math.abs(t - targetMs)
+        if (dist < closestDist) { closestDist = dist; closestIdx = i }
+      }
+
+      // Read the beat number of the closest beat
+      const targetEo = pos + 24 + closestIdx * 8
+      const targetBn = buf.readUInt16BE(targetEo)
+      if (targetBn === 1) return false  // already aligned
+
+      // Shift all beat numbers so the target beat becomes 1
+      for (let i = 0; i < count; i++) {
+        const eo = pos + 24 + i * 8
+        if (eo + 8 > buf.length) break
+        const orig = buf.readUInt16BE(eo)
+        const shifted = ((orig - targetBn + 4) % 4) + 1
+        buf.writeUInt16BE(shifted, eo)
+      }
+
+      fs.writeFileSync(anlzFullPath, buf)
+      console.log(`[anlz] Fixed bar alignment by hotcue (targetBeat was ${targetBn}, closestMs=${buf.readUInt32BE(targetEo + 4)}) in ${anlzFullPath}`)
+      return true
+    }
+    if (totalLen < 12) break
+    pos += totalLen
+  }
+  return false
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────

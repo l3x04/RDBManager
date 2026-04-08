@@ -85,7 +85,8 @@ export default function LoadingScreen({ reveal, onRevealDone }) {
   return (
     <div className={`loading-screen${revealing ? ' loading-reveal' : ''}`}>
       <div className="loading-content">
-        <div className="loading-title">Lex's Cue Editor</div>
+        <div className="loading-title">RDBManager</div>
+        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: -4, letterSpacing: '0.15em' }}>by L£X</div>
 
         <div className="freq-bars">
           {bars.map((bar, i) => (

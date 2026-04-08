@@ -53,9 +53,11 @@ export default function BeatgridControls({
 }) {
   const adj    = useAppStore(s => s.trackAdjustments[track?.id] ?? DEFAULT_ADJ)
   const setAdj = useAppStore(s => s.setTrackAdjustment)
+  const setTracks = useAppStore(s => s.setTracks)
 
   const bpm = adj.bpmOverride ?? (track?.bpm ?? 0)
   const [bpmText, setBpmText] = useState(bpm.toFixed(1))
+  const [fixBarBusy, setFixBarBusy] = useState(false)
   useEffect(() => { setBpmText(bpm.toFixed(1)) }, [bpm])
 
   if (!track) return null
@@ -63,6 +65,21 @@ export default function BeatgridControls({
   const nudge  = (deltaMs) => setAdj(track.id, { gridOffsetMs: (adj.gridOffsetMs ?? 0) + deltaMs })
   const commitBpm = (v) => setAdj(track.id, { bpmOverride: isNaN(v) || v <= 0 ? null : Math.round(v * 10) / 10 })
   const setBpmFromButtons = (v) => { commitBpm(v); setBpmText(v.toFixed(1)) }
+
+  const handleFixBar = async () => {
+    setFixBarBusy(true)
+    try {
+      const res = await window.api.fixBarAlignment(track.id)
+      if (res.ok && res.fixed) {
+        const freshTracks = await window.api.getTracks()
+        setTracks(freshTracks)
+      }
+    } catch (err) {
+      console.error('[fixBar]', err)
+    } finally {
+      setFixBarBusy(false)
+    }
+  }
 
   return (
     <div>
@@ -102,6 +119,14 @@ export default function BeatgridControls({
         {[[-10,'−10ms'], [-1,'−1ms'], [1,'+1ms'], [10,'+10ms']].map(([delta, label]) => (
           <button key={delta} style={btnStyle} onClick={() => nudge(delta)}>{label}</button>
         ))}
+        <button
+          style={{ ...btnStyle, marginLeft: 4 }}
+          onClick={handleFixBar}
+          disabled={fixBarBusy}
+          title="Fix bar alignment — shift beat numbers so beat 1 is the downbeat"
+        >
+          {fixBarBusy ? '...' : 'Fix Bar'}
+        </button>
 
         {/* Zoom */}
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>

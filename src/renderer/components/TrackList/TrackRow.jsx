@@ -1,7 +1,19 @@
 // src/renderer/components/TrackList/TrackRow.jsx
 import { formatBpm, formatDuration, HOTCUE_COLOURS } from '../../utils/colours.js'
 
+// rekordbox Kind → slot letter (same mapping as db.js)
+const KIND_TO_SLOT = { 1:'A', 2:'B', 3:'C', 5:'D', 6:'E', 7:'F', 8:'G', 9:'H' }
+
+function getFileFormat(filePath) {
+  if (!filePath) return null
+  const dot = filePath.lastIndexOf('.')
+  if (dot === -1) return null
+  return filePath.slice(dot + 1).toUpperCase()
+}
+
 export default function TrackRow({ track, selected, focused, onSelect, onFocus, onRowClick, bpmOverride }) {
+  const format = getFileFormat(track.filePath)
+
   return (
     <div
       onClick={e => onRowClick(track.id, e)}
@@ -32,6 +44,16 @@ export default function TrackRow({ track, selected, focused, onSelect, onFocus, 
       }}>
         {track.artist}
       </span>
+      {format && (
+        <span style={{
+          flex: '0 0 auto', fontSize: 9, fontWeight: 600, color: 'var(--text-secondary)',
+          background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: 3, padding: '1px 5px', letterSpacing: '0.04em',
+          lineHeight: '16px', textAlign: 'center',
+        }}>
+          {format}
+        </span>
+      )}
       <span style={{
         flex: '0 0 46px', fontSize: 11, color: 'var(--text-secondary)',
         fontVariantNumeric: 'tabular-nums',
@@ -48,15 +70,28 @@ export default function TrackRow({ track, selected, focused, onSelect, onFocus, 
         {formatDuration(track.duration)}
       </span>
       <div style={{ display: 'flex', gap: 2, flex: 1, justifyContent: 'flex-end', alignItems: 'center' }}>
-        {track.hotcues.map(hc => (
+        {track.hotcues
+          .map(hc => {
+            // Derive the slot letter: use existing slot, fall back to Kind mapping, skip if neither
+            const slot = hc.slot || (hc.Kind != null ? KIND_TO_SLOT[hc.Kind] : null)
+            if (!slot) return null
+            return { ...hc, slot }
+          })
+          .filter(Boolean)
+          .map(hc => (
           <div
             key={hc.slot}
             title={`Hotcue ${hc.slot}`}
             style={{
-              width: 5, height: 16, borderRadius: 2,
+              minWidth: 14, height: 16, borderRadius: 3, padding: '0 2px',
               background: hc.colour ?? '#28e214',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 9, fontWeight: 700, color: '#000', lineHeight: 1,
+              letterSpacing: 0,
             }}
-          />
+          >
+            {hc.slot}
+          </div>
         ))}
       </div>
     </div>

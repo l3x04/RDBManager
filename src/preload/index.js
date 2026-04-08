@@ -10,6 +10,15 @@ contextBridge.exposeInMainWorld('api', {
   saveToRekordbox: (payload) => ipcRenderer.invoke('db:saveToRb', payload),
   readAudioFile:  (filePath) => ipcRenderer.invoke('file:readAudio', filePath),
   bulkDeleteCues: (payload) => ipcRenderer.invoke('db:bulkDeleteCues', payload),
+  fixBarAlignment: (trackId) => ipcRenderer.invoke('db:fixBarAlignment', { trackId }),
+  fixBarByHotcue: (opts) => ipcRenderer.invoke('db:fixBarByHotcue', opts),
+  convertAudio:     (opts) => ipcRenderer.invoke('audio:convert', opts),
+  convertAudioBulk: (opts) => ipcRenderer.invoke('audio:convertBulk', opts),
+  onConvertProgress: (cb) => {
+    const handler = (_e, data) => cb(data)
+    ipcRenderer.on('audio:convertProgress', handler)
+    return () => ipcRenderer.removeListener('audio:convertProgress', handler)
+  },
   onDbLoaded: (cb) => {
     const handler = (_e, data) => cb(data)
     ipcRenderer.on('db:loaded', handler)

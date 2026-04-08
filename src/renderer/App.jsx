@@ -10,11 +10,16 @@ import BottomBar from './components/BottomBar.jsx'
 import PreflightModal from './components/modals/PreflightModal.jsx'
 import SuccessModal from './components/modals/SuccessModal.jsx'
 import LoadingScreen from './components/LoadingScreen.jsx'
+import BackupWarningModal from './components/modals/BackupWarningModal.jsx'
+import Modal from './components/modals/Modal.jsx'
 
 export default function App() {
   const [modal, setModal] = useState(null)
   const [loading, setLoading] = useState(true)
   const [readyToReveal, setReadyToReveal] = useState(false)
+  const [showBackupWarning, setShowBackupWarning] = useState(false)
+  const [saveModal, setSaveModal] = useState(null) // { type: 'confirm' | 'result', ... }
+  const [updateAvailable, setUpdateAvailable] = useState(null) // { version, url }
   const store = useAppStore()
 
   // On mount: subscribe to db:loaded to populate tracks (no session restore — always fresh from DB)
@@ -46,6 +51,19 @@ export default function App() {
     const unsubError = window.api.onDbError(({ error }) => {
       store.setDbError(error)
     })
+
+    // Check for updates
+    fetch('https://api.github.com/repos/l3x04/RDBManager/releases/latest')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data?.tag_name) return
+        const remote = data.tag_name.replace(/^v/, '')
+        const local = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0'
+        // Don't show update notification in dev mode (version unknown) or when versions match
+        if (local === '0.0.0' || remote === local) return
+        setUpdateAvailable({ version: remote, url: data.html_url })
+      })
+      .catch(() => {}) // silent fail if offline
 
     return () => {
       if (typeof unsubLoaded === 'function') unsubLoaded()
@@ -100,10 +118,14 @@ export default function App() {
     await runGeneration()
   }
 
-  async function handleSaveToRb() {
+  function handleSaveToRb() {
+    setSaveModal({ type: 'confirm' })
+  }
+
+  async function executeSave() {
+    setSaveModal(null)
     const currentOverrides = useAppStore.getState().cueOverrides
     console.log('[save-renderer] cueOverrides keys:', Object.keys(currentOverrides), 'store.cueOverrides keys:', Object.keys(store.cueOverrides))
-    if (!window.confirm('Save all changes (BPM, cues, generated cues) to rekordbox? A backup will be created.')) return
     try {
       const result = await window.api.saveToRekordbox({
         selectedTrackIds: [...store.selectedTrackIds],
@@ -123,12 +145,13 @@ export default function App() {
         if (result.bpmChanges > 0) parts.push(`${result.bpmChanges} BPM change${result.bpmChanges > 1 ? 's' : ''}`)
         if (result.cuesWritten > 0) parts.push(`${result.cuesWritten} generated cue${result.cuesWritten > 1 ? 's' : ''}`)
         if (result.cueOverrideCount > 0) parts.push(`${result.cueOverrideCount} track${result.cueOverrideCount > 1 ? 's' : ''} cue-edited`)
-        window.alert(`Saved. Restart rekordbox to see changes.\n${parts.join(', ') || 'No changes written.'}`)
+        if (result.conversionsApplied > 0) parts.push(`${result.conversionsApplied} conversion${result.conversionsApplied > 1 ? 's' : ''} applied`)
+        setSaveModal({ type: 'success', message: parts.join(', ') || 'No changes written.' })
       } else {
-        window.alert(`Save failed: ${result.error}`)
+        setSaveModal({ type: 'error', message: result.error })
       }
     } catch (err) {
-      window.alert(`Save failed: ${err.message}`)
+      setSaveModal({ type: 'error', message: err.message })
     }
   }
 
@@ -149,8 +172,21 @@ export default function App() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
-      {loading && <LoadingScreen reveal={readyToReveal} onRevealDone={() => setLoading(false)} />}
+      {loading && <LoadingScreen reveal={readyToReveal} onRevealDone={() => { setLoading(false); setShowBackupWarning(true) }} />}
       <TopBar onReload={handleReload} />
+
+      {updateAvailable && (
+        <div style={{ background: '#1a2a1a', color: '#30d158', padding: '6px 16px', fontSize: 12, textAlign: 'center', borderBottom: '1px solid #2a4a2a', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          <span>Update available: <b>v{updateAvailable.version}</b></span>
+          <a href={updateAvailable.url} target="_blank" rel="noreferrer"
+            style={{ color: '#0a84ff', textDecoration: 'underline', cursor: 'pointer' }}
+            onClick={(e) => { e.preventDefault(); window.api?.openExternal?.(updateAvailable.url) || window.open(updateAvailable.url) }}>
+            Download
+          </a>
+          <button onClick={() => setUpdateAvailable(null)}
+            style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: 14, marginLeft: 4 }}>✕</button>
+        </div>
+      )}
 
       {store.dbError && (
         <div style={{ background: '#3a1c1c', color: '#ff453a', padding: '8px 16px', fontSize: 12, textAlign: 'center', borderBottom: '1px solid #5a2020' }}>
@@ -173,6 +209,41 @@ export default function App() {
       )}
       {modal?.type === 'success' && (
         <SuccessModal result={modal.result} onClose={() => setModal(null)} />
+      )}
+
+      {showBackupWarning && (
+        <BackupWarningModal onDismiss={() => setShowBackupWarning(false)} />
+      )}
+
+      {saveModal?.type === 'confirm' && (
+        <Modal
+          buttons={[
+            { label: 'Cancel', onClick: () => setSaveModal(null), variant: 'ghost' },
+            { label: 'Save to Rekordbox', onClick: executeSave, variant: 'danger' },
+          ]}
+        >
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Save to Rekordbox</div>
+          <div style={{ fontSize: 12, lineHeight: 1.6, color: 'var(--text-secondary)' }}>
+            Save all changes (BPM, cues, generated cues) to rekordbox? A backup will be created automatically.
+          </div>
+        </Modal>
+      )}
+
+      {saveModal?.type === 'success' && (
+        <Modal buttons={[{ label: 'Done', onClick: () => setSaveModal(null), variant: 'primary' }]}>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: '#30d158' }}>Saved Successfully</div>
+          <div style={{ fontSize: 12, lineHeight: 1.6, color: 'var(--text-secondary)', marginBottom: 4 }}>
+            Restart rekordbox to see changes.
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-primary)' }}>{saveModal.message}</div>
+        </Modal>
+      )}
+
+      {saveModal?.type === 'error' && (
+        <Modal buttons={[{ label: 'Close', onClick: () => setSaveModal(null), variant: 'ghost' }]}>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: '#ff453a' }}>Save Failed</div>
+          <div style={{ fontSize: 12, lineHeight: 1.6, color: 'var(--text-secondary)' }}>{saveModal.message}</div>
+        </Modal>
       )}
     </div>
   )
