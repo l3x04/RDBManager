@@ -4,9 +4,11 @@
 
 ---
 
-## BACK UP YOUR DATABASE FIRST
+## BACK UP BEFORE YOU DO ANYTHING
 
-**This software directly modifies your rekordbox database. If something goes wrong, your library data (cues, playlists, ratings, grid positions) could be lost or corrupted.**
+**This software directly modifies your rekordbox database and, if you use format conversion, your actual music files. If something goes wrong, your library data (cues, playlists, ratings, grid positions) could be lost or corrupted — and if you use the "delete originals" option during conversion, your original audio files will be permanently gone.**
+
+### Back up your database
 
 Before using RDBManager for the first time — and ideally before each session — **make a copy of your rekordbox database:**
 
@@ -16,7 +18,11 @@ Before using RDBManager for the first time — and ideally before each session �
 
 If anything ever goes wrong, you can restore by copying that file back.
 
-**Additional safety notes:**
+### Back up your music files (if using conversion)
+
+Format conversion is a **beta feature**. If you plan to convert files (e.g. FLAC to WAV) and especially if you plan to use the "delete originals" option, **back up your music library first.** Copy your music folders to an external drive or a separate location on disk. Conversion creates new files alongside the originals, but if something goes wrong mid-conversion or with the database path update, you want to be able to recover.
+
+### General safety notes
 
 - Always close rekordbox before clicking "Save to rekordbox" in RDBManager
 - Changes are preview-only until you explicitly save — you can experiment freely
